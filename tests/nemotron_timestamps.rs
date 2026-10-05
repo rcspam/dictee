@@ -59,3 +59,27 @@ fn words_come_with_their_time_and_the_text_is_unchanged() {
     assert_eq!(joined.join(" ").replace(" ,", ",").replace(" .", "."),
                words(&plain).join(" "));
 }
+
+/// NEMOTRON_TEST_START: how the recording starts (e.g. "Et moi" for the LeCun
+/// passage that used to lose it).
+#[test]
+#[ignore = "loads the ~2.5 GB Nemotron 3.5 model (NEMOTRON_MODEL_DIR, NEMOTRON_TEST_WAV, NEMOTRON_TEST_START)"]
+fn the_first_words_are_kept_offline_and_live() {
+    let model_dir = std::env::var("NEMOTRON_MODEL_DIR").expect("NEMOTRON_MODEL_DIR");
+    let audio = read_mono(&std::env::var("NEMOTRON_TEST_WAV").expect("NEMOTRON_TEST_WAV"));
+    let start = std::env::var("NEMOTRON_TEST_START").expect("NEMOTRON_TEST_START");
+    let mut nemotron = Nemotron::from_pretrained(&model_dir, None).expect("load Nemotron");
+    let _ = nemotron.set_target_lang("fr-FR");
+
+    let offline = nemotron.transcribe_audio(&audio).expect("transcribe");
+    nemotron.reset();
+    for piece in audio.chunks(8_000) {
+        nemotron.transcribe_chunk(piece).expect("stream");
+    }
+    nemotron.finalize_transcript().expect("finalize");
+    let live = nemotron.get_transcript();
+    eprintln!("offline: {offline}\nlive:    {live}");
+
+    assert!(offline.starts_with(&start), "offline lost the start: {offline}");
+    assert!(live.starts_with(&start), "live lost the start: {live}");
+}

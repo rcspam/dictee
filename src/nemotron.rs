@@ -37,6 +37,25 @@ const DECODER_LSTM_DIM: usize = 640;
 const CHUNK_SIZE: usize = 56;
 const PRE_ENCODE_CACHE: usize = 9;
 
+/// Mel frames of the first chunk: 1 + subsampling × lookahead (1 + 8 × 6),
+/// as NeMo's offline mode and NVIDIA's reference cut it, then CHUNK_SIZE.
+/// Our encoder export always drops the encoder frames of a 9-frame cache
+/// (NeMo's pad_and_drop_preencoded): fed 56 real frames, the first chunk
+/// moved the whole frame grid by 7 mel frames and every utterance lost its
+/// first words ("Et moi, moi" on the LeCun interview, which the reference
+/// keeps). 7 more padding frames put it back on the reference grid.
+const FIRST_CHUNK_SIZE: usize = 49;
+
+/// (padding frames after the pre-encode cache, real mel frames) of chunk
+/// `chunk_idx`.
+fn chunk_layout(chunk_idx: usize) -> (usize, usize) {
+    if chunk_idx == 0 {
+        (CHUNK_SIZE - FIRST_CHUNK_SIZE, FIRST_CHUNK_SIZE)
+    } else {
+        (0, CHUNK_SIZE)
+    }
+}
+
 /// Seconds of audio per encoder frame: the FastConformer subsamples the
 /// 10 ms mel frames by 8.
 const FRAME_SECONDS: f32 = (8 * HOP_LENGTH) as f32 / SAMPLE_RATE as f32;
@@ -580,7 +599,8 @@ impl Nemotron {
         let mut frame_base = 0;
 
         while buffer_idx < total_frames {
-            let chunk_end = (buffer_idx + CHUNK_SIZE).min(total_frames);
+            let (lead, size) = chunk_layout(chunk_idx);
+            let chunk_end = (buffer_idx + size).min(total_frames);
             let main_len = chunk_end - buffer_idx;
 
             let expected_size = PRE_ENCODE_CACHE + CHUNK_SIZE;
@@ -599,14 +619,14 @@ impl Nemotron {
             // Fill main chunk
             for f in 0..main_len {
                 for m in 0..N_MELS {
-                    chunk_data[m * expected_size + PRE_ENCODE_CACHE + f] = mel[[m, buffer_idx + f]];
+                    chunk_data[m * expected_size + PRE_ENCODE_CACHE + lead + f] = mel[[m, buffer_idx + f]];
                 }
             }
 
             let mel_chunk = Array3::from_shape_vec((1, N_MELS, expected_size), chunk_data)
                 .map_err(|e| Error::Model(format!("Failed to create mel chunk: {e}")))?;
 
-            let chunk_length = PRE_ENCODE_CACHE + main_len;
+            let chunk_length = PRE_ENCODE_CACHE + lead + main_len;
 
             let (encoded, enc_len, new_cache) = self.model.run_encoder(
                 &mel_chunk,
@@ -620,7 +640,7 @@ impl Nemotron {
             all_tokens.extend(new_tokens.into_iter().map(|(id, t)| (id, frame_base + t)));
             frame_base += enc_len as usize;
 
-            buffer_idx += CHUNK_SIZE;
+            buffer_idx += size;
             chunk_idx += 1;
         }
 
@@ -653,7 +673,8 @@ impl Nemotron {
 
         // Check if we have enough NEW frames to process a chunk
         let available_new_frames = total_mel_frames.saturating_sub(processed_mel_frames);
-        if available_new_frames < CHUNK_SIZE {
+        let (lead, size) = chunk_layout(self.chunk_idx);
+        if available_new_frames < size {
             return Ok(String::new());
         }
 
@@ -664,13 +685,12 @@ impl Nemotron {
         // Determine the mel frame range for this chunk
         let is_first_chunk = self.chunk_idx == 0;
         let main_start = processed_mel_frames;
-        let _main_end = main_start + CHUNK_SIZE;
 
         if is_first_chunk {
-            // First chunk: zero-pad for pre-encode cache
-            for f in 0..CHUNK_SIZE.min(total_mel_frames) {
+            // First chunk: zero-pad for pre-encode cache and the reference grid
+            for f in 0..size.min(total_mel_frames) {
                 for m in 0..N_MELS {
-                    chunk_data[m * expected_size + PRE_ENCODE_CACHE + f] = full_mel[[m, f]];
+                    chunk_data[m * expected_size + PRE_ENCODE_CACHE + lead + f] = full_mel[[m, f]];
                 }
             }
         } else {
@@ -713,7 +733,7 @@ impl Nemotron {
         self.accumulated_tokens.extend(&tokens);
 
         // Advance processed position
-        self.audio_processed += CHUNK_SIZE * HOP_LENGTH;
+        self.audio_processed += size * HOP_LENGTH;
         self.chunk_idx += 1;
 
         // Trim audio buffer to keep memory bounded
@@ -760,15 +780,17 @@ impl Nemotron {
             if available == 0 {
                 break;
             }
-            let main_len = available.min(CHUNK_SIZE);
+            let (lead, size) = chunk_layout(self.chunk_idx);
+            let main_len = available.min(size);
             let main_start = processed_mel_frames;
             let mut chunk_data = vec![0.0f32; N_MELS * expected_size];
 
             if self.chunk_idx == 0 {
-                // First chunk: zero-pad for pre-encode cache (main_start == 0).
+                // First chunk: zero-pad for pre-encode cache and the reference
+                // grid (main_start == 0).
                 for f in 0..main_len {
                     for m in 0..N_MELS {
-                        chunk_data[m * expected_size + PRE_ENCODE_CACHE + f] =
+                        chunk_data[m * expected_size + PRE_ENCODE_CACHE + lead + f] =
                             full_mel[[m, f]];
                     }
                 }
@@ -796,7 +818,7 @@ impl Nemotron {
 
             // True length: tells the encoder where the valid frames stop —
             // for the last partial chunk this signals end-of-sequence.
-            let chunk_length = (PRE_ENCODE_CACHE + main_len) as i64;
+            let chunk_length = (PRE_ENCODE_CACHE + lead + main_len) as i64;
             let (encoded, enc_len, new_cache) = self.model.run_encoder(
                 &mel_chunk,
                 chunk_length,
@@ -816,7 +838,7 @@ impl Nemotron {
             self.audio_processed += main_len * HOP_LENGTH;
             self.chunk_idx += 1;
 
-            if main_len < CHUNK_SIZE {
+            if main_len < size {
                 break; // that was the final partial chunk
             }
         }
@@ -992,6 +1014,19 @@ mod tests {
     fn trim_is_zero_below_one_hop() {
         assert_eq!(aligned_trim(HOP_LENGTH - 1, 10 * HOP_LENGTH), 0);
         assert_eq!(aligned_trim(10 * HOP_LENGTH, HOP_LENGTH - 1), 0);
+    }
+
+    #[test]
+    fn the_first_chunk_is_cut_like_the_reference() {
+        // 1 + subsampling × lookahead real frames, the rest padding, so the
+        // encoder frames fall where NeMo's offline mode puts them
+        assert_eq!(FIRST_CHUNK_SIZE, 1 + 8 * 6);
+        assert_eq!(chunk_layout(0), (CHUNK_SIZE - FIRST_CHUNK_SIZE, FIRST_CHUNK_SIZE));
+        for chunk in 1..4 {
+            assert_eq!(chunk_layout(chunk), (0, CHUNK_SIZE));
+        }
+        let (lead, size) = chunk_layout(0);
+        assert_eq!(lead + size, CHUNK_SIZE, "the first chunk fills the encoder input");
     }
 
     #[test]
