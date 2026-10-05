@@ -1023,6 +1023,36 @@ def _assign_speakers(words, speaker_segments, switch_penalty=1.5, free_gap=1.0):
     return [speakers[j] for j in path]
 
 
+# Nemotron 3.5 dates a word when it comes out of the decoder: 0.29 s (004c)
+# and 0.31 s (006b) after the word starts, median over SUMM-RE (2026-10-05).
+# Moved back by this much, more words land in the piece they were said in:
+# right voice 96.8 -> 97.9 % and 93.1 -> 95.6 % of the recognized words.
+NEMOTRON_WORD_DELAY = 0.3
+
+
+def _turns_in_pieces(words, pieces, delay):
+    """The turns of timed words on Nemotron 3 pieces: each word, moved back
+    by `delay` seconds, goes to the piece around its middle, else to the
+    nearest one (pieces never overlap, one voice at a time). One turn per
+    piece holding words, timed with the piece, like a piece transcribed
+    alone: {start, end, speaker, parts}."""
+    def distance(mid, piece):
+        if piece["start"] <= mid <= piece["end"]:
+            return 0.0
+        return min(abs(mid - piece["start"]), abs(mid - piece["end"]))
+
+    held = {}
+    for word in words:
+        mid = 0.5 * (word["start"] + word["end"]) - delay
+        nearest = min(range(len(pieces)), key=lambda i: distance(mid, pieces[i]),
+                      default=None)
+        if nearest is not None:
+            held.setdefault(nearest, []).append(word["text"])
+    return [{"start": pieces[i]["start"], "end": pieces[i]["end"],
+             "speaker": pieces[i]["speaker"], "parts": held[i]}
+            for i in sorted(held)]
+
+
 def _build_turns(words, assigned, speaker_segments):
     """Group per-word speaker assignments into display turns.
 
@@ -1067,7 +1097,7 @@ class _DiarizeTranscribeWorker(QThread):
     error = Signal(str)            # error message
 
     def __init__(self, audio_path, diarize_output, sock_path, parent=None,
-                 socket_timeout=None, per_segment=False, audio_duration=0.0,
+                 socket_timeout=None, mode="timestamps", audio_duration=0.0,
                  plain=False):
         super().__init__(parent)
         self._audio_path = audio_path
@@ -1082,10 +1112,8 @@ class _DiarizeTranscribeWorker(QThread):
         # cover the entire transcription, not a fixed 120 s — a 92-min file
         # needs 20-40 min and used to die at the 2-min mark (empty result tab).
         self._audio_duration = audio_duration
-        # Timestamp-less backends (nemotron): a full-audio '\tdiarize' request
-        # returns an empty body (the daemon formats word tokens, and nemotron
-        # has none) — transcribe each diarized segment separately instead.
-        self._per_segment = per_segment
+        # How the pieces are transcribed: _phase2_mode.
+        self._mode = mode
         self._cancelled = False
         self._sock = None  # current open socket, if any (for cancel)
 
@@ -1219,23 +1247,25 @@ class _DiarizeTranscribeWorker(QThread):
         if self._cancelled:
             return
 
-        if self._per_segment:
+        if self._mode == "pieces":
             self._run_per_segment(daemon_path, speaker_segments)
             return
 
-        # Transcribe full audio via daemon with timestamps (diarize mode).
+        # Transcribe full audio via daemon with timestamps: timed words for
+        # "words", the daemon's diarize mode otherwise.
         # Duration-aware recv timeout: the daemon sends nothing until the whole
         # file is transcribed, so the FIRST recv() blocks for the full run.
         # max(300, 3x duration) covers large-v3 even on a mid-run CPU fallback.
         recv_timeout = max(300, int(self._audio_duration * 3)) if self._audio_duration else 300
-        _dbg(f"DiarizeWorker: sending full audio to daemon: {daemon_path} "
-             f"(recv timeout {recv_timeout}s)")
+        request = "\ttimestamps" if self._mode == "words" else "\tdiarize"
+        _dbg(f"DiarizeWorker: sending full audio to daemon: {daemon_path}"
+             f"{request!r} (recv timeout {recv_timeout}s)")
         full_text = ""
         try:
             self._sock = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
             self._sock.settimeout(recv_timeout)
             self._sock.connect(self._sock_path)
-            self._sock.sendall((daemon_path + "\tdiarize\n").encode())
+            self._sock.sendall((daemon_path + request + "\n").encode())
             data = b""
             while True:
                 chunk = self._sock.recv(4096)
@@ -1301,9 +1331,13 @@ class _DiarizeTranscribeWorker(QThread):
         # best-estimate speaker; genuine non-speech (whisper hallucinations
         # on music/silence) is a separate concern (detect & drop), not a
         # speaker-assignment one.
-        assigned = _assign_speakers(sentences, speaker_segments)
-
-        turns = _build_turns(sentences, assigned, speaker_segments)
+        # Timed words on Nemotron 3 pieces need none of it: the pieces never
+        # overlap and hold no blip, each word takes the one it was said in.
+        if self._mode == "words":
+            turns = _turns_in_pieces(sentences, speaker_segments, NEMOTRON_WORD_DELAY)
+        else:
+            assigned = _assign_speakers(sentences, speaker_segments)
+            turns = _build_turns(sentences, assigned, speaker_segments)
 
         results = []
         for turn in turns:
@@ -1961,12 +1995,19 @@ def _select_transcribe_cmd(diarize, has_transcribe, has_diarize_only,
     return None, False, "diarize-only"
 
 
-def _phase2_per_piece(backend):
-    """True when phase 2 sends the daemon one plain request per Nemotron 3
-    piece, so each piece keeps its speaker by construction: every backend
-    but faster-whisper, which still transcribes the whole file with
-    timestamps. vosk reads the whole request as a path, so a '\tdiarize'
-    request fails on it.
+def _phase2_mode(backend):
+    """How phase 2 transcribes a diarized file with `backend`:
+
+    - "pieces": one plain request per Nemotron 3 piece, so each piece keeps
+      its speaker by construction. Every backend but the two below; vosk
+      reads the whole request as a path, so a '\tdiarize' request fails on
+      it.
+    - "words": Nemotron 3.5 transcribes the whole file into timed words,
+      each one going to the piece around its middle. Alone on a short piece
+      this streaming model returns nothing, NVIDIA's reference too
+      (measured on 2026-10-04: 35 turns lost in 14 min).
+    - "timestamps": faster-whisper keeps its timestamped whole-file path,
+      with the sequence-aware attribution.
 
     Measured on SUMM-RE on 2026-10-04: whisper-rust gains on both counts
     piece by piece (WER 46.8 -> 30.7 % on 004c, 44.0 -> 39.2 % on 006b;
@@ -1974,7 +2015,12 @@ def _phase2_per_piece(backend):
     skipping whole passages. faster-whisper tiny invents words on short
     pieces (006b WER 59.2 -> 75.2 %, 766 insertions).
     Pure function, tests/test-transcribe-routing.py."""
-    return (backend or "parakeet") != "whisper"
+    backend = backend or "parakeet"
+    if backend == "whisper":
+        return "timestamps"
+    if backend == "nemotron":
+        return "words"
+    return "pieces"
 
 
 def _vram_needed_mb(diarize, own_asr_model):
@@ -5495,8 +5541,8 @@ class TranscribeWindow(QDialog):
             sock_path = self._isolated_daemon.start()
             _worker_timeout = 180
             # One plain request per Nemotron 3 piece (exact speaker by
-            # construction), except for the whisper engines.
-            _per_segment = _phase2_per_piece(self._isolated_recipe["backend"])
+            # construction), except for faster-whisper and Nemotron 3.5.
+            _phase2 = _phase2_mode(self._isolated_recipe["backend"])
         else:
             # Restart daemon
             self._daemon_was_active = False
@@ -5510,7 +5556,7 @@ class TranscribeWindow(QDialog):
             _worker_timeout = None
             # Same rule for the F9 daemon, Canary included: it transcribes
             # each piece in its own language.
-            _per_segment = _phase2_per_piece(
+            _phase2 = _phase2_mode(
                 _read_conf().get("DICTEE_ASR_BACKEND", "parakeet"))
 
         self._run_status(_("Waiting for daemon..."))
@@ -5518,7 +5564,7 @@ class TranscribeWindow(QDialog):
         # Launch worker thread
         self._diarize_worker = _DiarizeTranscribeWorker(
             audio_path, diarize_output, sock_path, self,
-            socket_timeout=_worker_timeout, per_segment=_per_segment,
+            socket_timeout=_worker_timeout, mode=_phase2,
             audio_duration=getattr(self._run_tab, "_audio_duration", 0.0))
         self._diarize_worker.progress.connect(self._on_diarize_progress)
         self._diarize_worker.finished.connect(self._on_diarize_done)

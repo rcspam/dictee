@@ -323,7 +323,9 @@ def analysis_command(audio, transcript, diar_engine, asr_spec, preview_whole):
     WER 31.0 against 31.5 % and 38.6 against 39.2 %, words on the right
     voice 87.5 against 87.8 % and 82.0 against 82.2 %), so the meeting
     opens at once. With MOSS, or a preview that missed turns or holds
-    none, the meeting is analysed again."""
+    none, the meeting is analysed again; with Nemotron 3.5 too, whose
+    preview goes piece by piece while its analysis transcribes the whole
+    file (WER 32.9 against 29.0 % on 004c, 2026-10-05)."""
     has_lines = False
     try:
         with open(transcript, encoding="utf-8") as f:
@@ -332,7 +334,7 @@ def analysis_command(audio, transcript, diar_engine, asr_spec, preview_whole):
     except OSError:
         pass
     cmd = ["dictee-transcribe", "--file", str(audio)]
-    if preview_whole and diar_engine != "moss" and has_lines:
+    if preview_whole and diar_engine != "moss" and asr_spec != "nemotron" and has_lines:
         cmd += ["--transcript", str(transcript)]
     else:
         cmd += ["--diarize", "--diar-engine", diar_engine or "nemotron3"]

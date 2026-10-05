@@ -46,6 +46,16 @@ def test_analysis_runs_again_for_moss_or_a_preview_with_holes(tmp_path):
             "--diar-engine", engine, "--asr-model", "canary"], (transcript, engine, whole)
 
 
+def test_analysis_runs_again_for_nemotron_3_5(tmp_path):
+    # its preview goes piece by piece, its analysis transcribes the whole file
+    audio = tmp_path / "audio.wav"
+    preview = tmp_path / "transcript-live.md"
+    preview.write_text("[0.500s - 3.200s] Speaker 0: Bonjour.\n", encoding="utf-8")
+    assert ml.analysis_command(audio, preview, "nemotron3", "nemotron", True) == [
+        "dictee-transcribe", "--file", str(audio), "--diarize",
+        "--diar-engine", "nemotron3", "--asr-model", "nemotron"]
+
+
 def test_live_asr_daemon_recipes(monkeypatch, tmp_path):
     monkeypatch.setattr(ml.shutil, "which", lambda name: f"/usr/bin/{name}")
     ggml = tmp_path / "ggml-large-v3-q5_0.bin"

@@ -62,7 +62,8 @@ def _load_func(name, source_path=SCRIPT):
 
 _select_transcribe_cmd = _load_func("_select_transcribe_cmd")
 _diarize_only_engine_args = _load_func("_diarize_only_engine_args")
-_phase2_per_piece = _load_func("_phase2_per_piece")
+_phase2_mode = _load_func("_phase2_mode")
+_turns_in_pieces = _load_func("_turns_in_pieces")
 _diarized_asr_spec = _load_func("_diarized_asr_spec")
 _vram_needed_mb = _load_func("_vram_needed_mb")
 _translate_available = _load_func("_translate_available")
@@ -154,19 +155,62 @@ class DiarizedAsrSpecTests(unittest.TestCase):
 
 
 class PhaseTwoTests(unittest.TestCase):
-    """Which daemons transcribe the pieces one by one."""
+    """How phase 2 transcribes the Nemotron 3 pieces."""
 
-    def test_every_backend_but_faster_whisper_goes_piece_by_piece(self):
+    def test_most_backends_go_piece_by_piece(self):
         # vosk reads the whole request as a path: a '\tdiarize' request fails.
         # whisper-rust, SUMM-RE on 2026-10-04: WER 46.8 -> 30.7 % (004c) and
         # 44.0 -> 39.2 % (006b), right speaker 78.7 -> 87.7 % and 74.7 -> 82.2 %
-        for backend in ("parakeet", "", "canary", "nemotron", "kyutai", "vosk",
-                        "whisper-rust"):
-            self.assertTrue(_phase2_per_piece(backend), backend)
+        for backend in ("parakeet", "", None, "canary", "kyutai", "vosk", "whisper-rust"):
+            self.assertEqual(_phase2_mode(backend), "pieces", backend)
+
+    def test_nemotron_transcribes_the_whole_file_into_timed_words(self):
+        # alone on a short piece this streaming model returns nothing
+        self.assertEqual(_phase2_mode("nemotron"), "words")
 
     def test_faster_whisper_keeps_its_timestamped_full_file_path(self):
         # tiny invents words on short pieces: 006b WER 59.2 -> 75.2 %
-        self.assertFalse(_phase2_per_piece("whisper"))
+        self.assertEqual(_phase2_mode("whisper"), "timestamps")
+
+
+class TurnsInPiecesTests(unittest.TestCase):
+    """Timed words on the Nemotron 3 pieces: one turn per piece holding
+    words, timed with the piece."""
+
+    PIECES = [{"start": 0.0, "end": 4.0, "speaker": 0},
+              {"start": 4.0, "end": 6.5, "speaker": 1},
+              {"start": 8.0, "end": 9.0, "speaker": 0}]
+
+    def word(self, start, end, text="mot"):
+        return {"start": start, "end": end, "text": text}
+
+    def turns(self, words, delay=0.0):
+        return [(t["start"], t["end"], t["speaker"], " ".join(t["parts"]))
+                for t in _turns_in_pieces(words, self.PIECES, delay)]
+
+    def test_each_word_in_the_piece_around_its_middle(self):
+        # a word across a change of voice goes where most of it is
+        words = [self.word(0.5, 0.9, "un"), self.word(3.5, 4.3, "deux"),
+                 self.word(3.9, 4.5, "trois"), self.word(6.0, 6.2, "quatre"),
+                 self.word(8.2, 8.5, "cinq")]
+        self.assertEqual(self.turns(words), [(0.0, 4.0, 0, "un deux"),
+                                             (4.0, 6.5, 1, "trois quatre"),
+                                             (8.0, 9.0, 0, "cinq")])
+
+    def test_between_pieces_the_nearest_one(self):
+        words = [self.word(6.8, 7.0, "un"), self.word(7.6, 7.8, "deux"),
+                 self.word(9.5, 9.8, "trois")]
+        self.assertEqual(self.turns(words), [(4.0, 6.5, 1, "un"),
+                                             (8.0, 9.0, 0, "deux trois")])
+
+    def test_late_words_are_moved_back_into_their_piece(self):
+        # dated 0.3 s late, the last word of a turn falls in the next one
+        words = [self.word(3.7, 3.8, "fin"), self.word(4.1, 4.2, "tour")]
+        self.assertEqual(self.turns(words), [(0.0, 4.0, 0, "fin"), (4.0, 6.5, 1, "tour")])
+        self.assertEqual(self.turns(words, delay=0.3), [(0.0, 4.0, 0, "fin tour")])
+
+    def test_no_piece_no_turn(self):
+        self.assertEqual(_turns_in_pieces([self.word(1.0, 1.2)], [], 0.3), [])
 
 
 class VramNeededTests(unittest.TestCase):
