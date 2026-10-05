@@ -3,11 +3,10 @@ set -e
 
 MODEL_DIR="/usr/share/dictee"
 TDT_DIR="$MODEL_DIR/tdt"
-DIAR_DIR="$MODEL_DIR/sortformer"
+NEMOTRON3_DIAR_DIR="$MODEL_DIR/nemotron3-diar"
 NEMOTRON_DIR="$MODEL_DIR/nemotron"
 
 HF_TDT="https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main"
-HF_DIAR="https://huggingface.co/altunenes/parakeet-rs/resolve/main"
 HF_NEMOTRON="https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
 
 TDT_FILES=(
@@ -15,10 +14,6 @@ TDT_FILES=(
     "encoder-model.onnx.data"
     "decoder_joint-model.onnx"
     "vocab.txt"
-)
-
-DIAR_FILES=(
-    "diar_streaming_sortformer_4spk-v2.1.onnx"
 )
 
 NEMOTRON_FILES=(
@@ -48,15 +43,6 @@ download_tdt() {
     done
 }
 
-download_sortformer() {
-    echo ""
-    echo "=== Sortformer model (diarization, ~50 MB) ==="
-    mkdir -p "$DIAR_DIR"
-    for file in "${DIAR_FILES[@]}"; do
-        download_file "$HF_DIAR/$file" "$DIAR_DIR/$file"
-    done
-}
-
 download_nemotron() {
     echo ""
     echo "=== Nemotron model (multilingual streaming, ~2.5 GB) ==="
@@ -77,10 +63,10 @@ else
     echo "⚠ TDT model missing — required for transcription"
 fi
 
-if [ -f "$DIAR_DIR/diar_streaming_sortformer_4spk-v2.1.onnx" ]; then
-    echo "✓ Sortformer model present"
+if [ -f "$NEMOTRON3_DIAR_DIR/model.onnx" ]; then
+    echo "✓ Nemotron 3 Diarization model present"
 else
-    echo "  Sortformer model missing (optional, diarization)"
+    echo "  Nemotron 3 Diarization model missing (optional, diarization)"
 fi
 
 if [ -f "$NEMOTRON_DIR/encoder.onnx" ]; then
@@ -103,7 +89,7 @@ fi
 echo ""
 echo "=== Models directory ==="
 CANARY_DIR="$MODEL_DIR/canary"
-for d in "$MODEL_DIR" "$TDT_DIR" "$DIAR_DIR" "$NEMOTRON_DIR" "$CANARY_DIR"; do
+for d in "$MODEL_DIR" "$TDT_DIR" "$NEMOTRON3_DIAR_DIR" "$NEMOTRON_DIR" "$CANARY_DIR"; do
     mkdir -p "$d"
     chmod 777 "$d"
 done
@@ -382,8 +368,7 @@ echo "Available commands:"
 echo "  transcribe               - Simple transcription (TDT, multilingual)"
 echo "  transcribe-daemon        - Daemon with preloaded model"
 echo "  transcribe-client        - Client for the daemon"
-echo "  transcribe-diarize       - Transcription + diarization (TDT)"
-echo "  transcribe-stream-diarize - Streaming + diarization (Nemotron, English only)"
+echo "  diarize-only             - Speaker diarization (Nemotron 3, up to 8 speakers)"
 echo "  dictee                   - Push-to-talk (voice dictation)"
 echo ""
 

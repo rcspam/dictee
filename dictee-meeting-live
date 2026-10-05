@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """dictee-meeting-live — Capture audio for a live meeting, then hand off to dictee-transcribe.
 
-Captures audio with pw-record into audio.wav until the user clicks Stop, then
-launches `dictee-transcribe --file <audio.wav> --diarize` which handles
-transcription + diarization + LLM analysis + export.
+Captures audio with pw-record into audio.wav until the user clicks Stop. A
+collapsible live preview shows the transcript turn by turn while recording:
+Nemotron 3 follows the voices as the file grows, and each piece it settles is
+transcribed at once.
 
-A collapsible live preview accordion shows the transcript turn by turn during
-recording (bonus preview — the real analysis is done by dictee-transcribe at Stop).
+The analysis button then opens the meeting in dictee-transcribe, which
+handles renaming, LLM analysis and export. When the preview covers the whole
+meeting with Nemotron 3, it is handed over as the transcript
+(`--transcript`); otherwise dictee-transcribe analyses the recording again
+(`--diarize`). See analysis_command().
 """
 
 import collections
