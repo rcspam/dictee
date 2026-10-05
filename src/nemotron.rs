@@ -1,6 +1,8 @@
+use crate::decoder::{TimedToken, TranscriptionResult};
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig as ExecutionConfig;
 use crate::model_nemotron::{NemotronEncoderCache, NemotronModel, NemotronModelConfig};
+use crate::timestamps::{process_timestamps, TimestampMode};
 use ndarray::{s, Array2, Array3};
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::f32::consts::PI;
@@ -34,6 +36,32 @@ const DECODER_LSTM_DIM: usize = 640;
 // both use chunk_size_output=7 in NeMo's streaming_cfg which corresponds to 56 mel frames).
 const CHUNK_SIZE: usize = 56;
 const PRE_ENCODE_CACHE: usize = 9;
+
+/// Seconds of audio per encoder frame: the FastConformer subsamples the
+/// 10 ms mel frames by 8.
+const FRAME_SECONDS: f32 = (8 * HOP_LENGTH) as f32 / SAMPLE_RATE as f32;
+
+/// The decoded `(token id, encoder frame)` pairs that `keep` accepts, each
+/// timed one encoder frame long from the frame it came out at (the timing
+/// of parakeet-rs 0.3.8).
+fn timed_tokens(
+    tokens: &[(usize, usize)],
+    keep: impl Fn(usize) -> bool,
+    piece: impl Fn(usize) -> String,
+) -> Vec<TimedToken> {
+    tokens
+        .iter()
+        .filter(|&&(id, _)| keep(id))
+        .map(|&(id, frame)| {
+            let start = frame as f32 * FRAME_SECONDS;
+            TimedToken {
+                text: piece(id),
+                start,
+                end: start + FRAME_SECONDS,
+            }
+        })
+        .collect()
+}
 
 /// How many samples the streaming buffer may drop from its front.
 ///
@@ -493,18 +521,63 @@ impl Nemotron {
 
     /// Transcribe audio samples (non-streaming)
     pub fn transcribe_audio(&mut self, audio: &[f32]) -> Result<String> {
+        let tokens = self.process_audio(audio)?;
+        Ok(self.decode_text(&tokens))
+    }
+
+    /// [`Self::transcribe_audio`] with timed tokens, grouped by `mode` (raw
+    /// tokens when `None`). A token starts at the encoder frame it came out
+    /// at, 80 ms each, so the timing is frame-accurate. The text is
+    /// `transcribe_audio`'s, where parakeet-rs 0.3.8 rebuilds it from the
+    /// groups.
+    pub fn transcribe_audio_with_timestamps(
+        &mut self,
+        audio: &[f32],
+        mode: Option<TimestampMode>,
+    ) -> Result<TranscriptionResult> {
+        let tokens = self.process_audio(audio)?;
+        let text = self.decode_text(&tokens);
+        let timed = timed_tokens(&tokens, |id| self.is_text(id), |id| {
+            self.vocab.decode_single(id)
+        });
+        Ok(TranscriptionResult {
+            text,
+            tokens: process_timestamps(&timed, mode.unwrap_or(TimestampMode::Tokens)),
+        })
+    }
+
+    /// A token of the transcript: in the vocabulary and not a language tag.
+    fn is_text(&self, id: usize) -> bool {
+        id < self.vocab_size && !self.lang_tag_ids.contains(&id)
+    }
+
+    fn decode_text(&self, tokens: &[(usize, usize)]) -> String {
+        let valid: Vec<usize> = tokens
+            .iter()
+            .map(|&(id, _)| id)
+            .filter(|&id| self.is_text(id))
+            .collect();
+        self.vocab.decode(&valid)
+    }
+
+    /// The offline chunk loop: every decoded token with the encoder frame it
+    /// came out at, counted from the start of `audio`.
+    fn process_audio(&mut self, audio: &[f32]) -> Result<Vec<(usize, usize)>> {
         self.reset();
 
         let mel = self.compute_mel_spectrogram(audio);
         let total_frames = mel.shape()[1];
 
         if total_frames == 0 {
-            return Ok(String::new());
+            return Ok(Vec::new());
         }
 
-        let mut all_tokens: Vec<usize> = Vec::new();
+        let mut all_tokens: Vec<(usize, usize)> = Vec::new();
         let mut buffer_idx = 0;
         let mut chunk_idx = 0;
+        // encoder frames of the previous chunks: chunk-local frames + this =
+        // frames since the start of the audio
+        let mut frame_base = 0;
 
         while buffer_idx < total_frames {
             let chunk_end = (buffer_idx + CHUNK_SIZE).min(total_frames);
@@ -544,18 +617,14 @@ impl Nemotron {
             self.encoder_cache = new_cache;
 
             let new_tokens = self.decode_chunk(&encoded, enc_len as usize)?;
-            all_tokens.extend(new_tokens);
+            all_tokens.extend(new_tokens.into_iter().map(|(id, t)| (id, frame_base + t)));
+            frame_base += enc_len as usize;
 
             buffer_idx += CHUNK_SIZE;
             chunk_idx += 1;
         }
 
-        let valid_tokens: Vec<usize> = all_tokens
-            .into_iter()
-            .filter(|t| *t < self.vocab_size && !self.lang_tag_ids.contains(t))
-            .collect();
-
-        Ok(self.vocab.decode(&valid_tokens))
+        Ok(all_tokens)
     }
 
     /// Stream transcribe a chunk of audio (call repeatedly for real-time).
@@ -636,7 +705,11 @@ impl Nemotron {
         )?;
         self.encoder_cache = new_cache;
 
-        let tokens = self.decode_chunk(&encoded, enc_len as usize)?;
+        let tokens: Vec<usize> = self
+            .decode_chunk(&encoded, enc_len as usize)?
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
         self.accumulated_tokens.extend(&tokens);
 
         // Advance processed position
@@ -732,7 +805,11 @@ impl Nemotron {
             )?;
             self.encoder_cache = new_cache;
 
-            let tokens = self.decode_chunk(&encoded, enc_len as usize)?;
+            let tokens: Vec<usize> = self
+                .decode_chunk(&encoded, enc_len as usize)?
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
             self.accumulated_tokens.extend(&tokens);
             new_tokens.extend(tokens);
 
@@ -753,7 +830,13 @@ impl Nemotron {
         Ok(result)
     }
 
-    fn decode_chunk(&mut self, encoder_out: &Array3<f32>, enc_frames: usize) -> Result<Vec<usize>> {
+    /// Greedy decode of one chunk: the tokens with the chunk-local encoder
+    /// frame each came out at.
+    fn decode_chunk(
+        &mut self,
+        encoder_out: &Array3<f32>,
+        enc_frames: usize,
+    ) -> Result<Vec<(usize, usize)>> {
         let mut tokens = Vec::new();
         let hidden_dim = encoder_out.shape()[1];
         let max_symbols_per_step = 10;
@@ -783,7 +866,7 @@ impl Nemotron {
                     break;
                 }
 
-                tokens.push(max_idx);
+                tokens.push((max_idx, t));
                 self.last_token = max_idx as i32;
                 self.state_1 = new_state_1;
                 self.state_2 = new_state_2;
@@ -909,5 +992,33 @@ mod tests {
     fn trim_is_zero_below_one_hop() {
         assert_eq!(aligned_trim(HOP_LENGTH - 1, 10 * HOP_LENGTH), 0);
         assert_eq!(aligned_trim(10 * HOP_LENGTH, HOP_LENGTH - 1), 0);
+    }
+
+    #[test]
+    fn an_encoder_frame_is_eighty_ms() {
+        assert!((FRAME_SECONDS - 0.08).abs() < 1e-6);
+    }
+
+    #[test]
+    fn tokens_are_timed_by_the_encoder_frame_they_come_out_at() {
+        // 3 is a language tag, 50 is past the vocabulary: both left out
+        let piece = |id: usize| match id {
+            7 => " Bon".to_string(),
+            8 => "jour".to_string(),
+            9 => " à".to_string(),
+            _ => "?".to_string(),
+        };
+        let timed = timed_tokens(
+            &[(7, 0), (8, 1), (3, 2), (9, 12), (50, 13)],
+            |id| id != 3 && id < 20,
+            piece,
+        );
+        let expected = [(" Bon", 0.0, 0.08), ("jour", 0.08, 0.16), (" à", 0.96, 1.04)];
+        assert_eq!(timed.len(), expected.len(), "{timed:?}");
+        for (token, (text, start, end)) in timed.iter().zip(expected) {
+            assert_eq!(token.text, text);
+            assert!((token.start - start).abs() < 1e-5 && (token.end - end).abs() < 1e-5,
+                    "{token:?}");
+        }
     }
 }

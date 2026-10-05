@@ -113,9 +113,7 @@ impl AsrBackend {
                         sample_rate
                     )));
                 }
-                // No word timestamps -> empty tokens.
-                let text = n.transcribe_audio(&audio)?;
-                Ok(TranscriptionResult { text, tokens: Vec::new() })
+                n.transcribe_audio_with_timestamps(&audio, mode)
             }
             #[cfg(feature = "whisper")]
             AsrBackend::Whisper(w) => w.transcribe_samples(audio, sample_rate, channels, mode),
