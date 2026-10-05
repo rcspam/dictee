@@ -274,8 +274,7 @@ msgid ""
 "English, Spanish, German, etc.<br>Native punctuation and capitalization (no "
 "post-processing needed).<br><br>Recommended for <b>GPU with ≥ 4 GB VRAM</b> "
 "— fastest on CUDA Tensor Cores.<br>Used by: <code>transcribe</code>, "
-"<code>transcribe-daemon</code>, <code>transcribe-diarize</code>, "
-"<code>dictee</code>"
+"<code>transcribe-daemon</code>, <code>dictee</code>"
 msgstr ""
 
 #: dictee-setup.py:2189
@@ -1753,7 +1752,7 @@ msgid "Runs on CPU or GPU (GPU 5x faster)"
 msgstr ""
 
 #: dictee-setup.py:8031 dictee-setup.py:8071
-msgid "Speaker diarization with Sortformer add-on"
+msgid "Speaker diarization with Nemotron 3 add-on"
 msgstr ""
 
 #: dictee-setup.py:8033 dictee-setup.py:8049
@@ -2206,8 +2205,25 @@ msgstr ""
 msgid ""
 "Diarization identifies <b>who speaks when</b> in a recording. It is used by "
 "the Transcribe window (Diarization toggle) and by Live meeting, and works "
-"with every ASR backend.<br><br>When the multi-speaker model is installed, "
-"file transcription uses it automatically instead of Sortformer."
+"with every ASR backend."
+msgstr ""
+
+#: dictee-setup.py:10021
+msgid "Retired models"
+msgstr ""
+
+#: dictee-setup.py:10025
+msgid ""
+"Nemotron 3 replaced these diarization engines in dictee 1.4: their models "
+"are no longer used and can be deleted."
+msgstr ""
+
+#: dictee-setup.py:10035
+msgid "{name}: {size} MB"
+msgstr ""
+
+#: dictee-setup.py:10061
+msgid "Could not delete {name}."
 msgstr ""
 
 #: dictee-setup.py:9548

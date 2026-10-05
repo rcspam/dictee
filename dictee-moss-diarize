@@ -6,7 +6,7 @@ Runs OpenMOSS MOSS-Transcribe-Diarize (GGUF, transcribe.cpp runtime): a 0.9B
 audio-LLM that emits the transcript AND the speaker labels in a single pass,
 as generated text in the canonical format `[start][Sxx]text[end]`.
 
-Unlike diarize-multi / diarize-only (which emit speaker segments for a
+Unlike diarize-only (which emits speaker segments for a
 separate ASR phase), this engine replaces the whole pipeline: its stdout is
 the final diarized transcript, one DIARIZE_RE-compatible line per turn:
 

@@ -301,8 +301,7 @@ msgid ""
 "English, Spanish, German, etc.<br>Native punctuation and capitalization (no "
 "post-processing needed).<br><br>Recommended for <b>GPU with ≥ 4 GB VRAM</b> "
 "— fastest on CUDA Tensor Cores.<br>Used by: <code>transcribe</code>, "
-"<code>transcribe-daemon</code>, <code>transcribe-diarize</code>, "
-"<code>dictee</code>"
+"<code>transcribe-daemon</code>, <code>dictee</code>"
 msgstr ""
 "<b>Parakeet-TDT 0.6B v3: FP32</b><br><br>Variante a precisione piena del "
 "modello di trascrizione principale.<br>Encoder FastConformer + decoder Token-"
@@ -310,8 +309,7 @@ msgstr ""
 "francese, inglese, spagnolo, tedesco, ecc.<br>Punteggiatura e maiuscole "
 "native (nessuna post-elaborazione necessaria).<br><br>Consigliato per <b>GPU "
 "con ≥ 4 GB di VRAM</b>: il più veloce sui Tensor Core CUDA.<br>Usato da: "
-"<code>transcribe</code>, <code>transcribe-daemon</code>, <code>transcribe-"
-"diarize</code>, <code>dictee</code>"
+"<code>transcribe</code>, <code>transcribe-daemon</code>, <code>dictee</code>"
 
 #: dictee-setup.py:2189
 #, no-python-format
@@ -1988,8 +1986,8 @@ msgid "Runs on CPU or GPU (GPU 5x faster)"
 msgstr "Funziona su CPU o GPU (GPU 5x più veloce)"
 
 #: dictee-setup.py:8031 dictee-setup.py:8071
-msgid "Speaker diarization with Sortformer add-on"
-msgstr "Diarizzazione con componente aggiuntivo Sortformer"
+msgid "Speaker diarization with Nemotron 3 add-on"
+msgstr "Diarizzazione con componente aggiuntivo Nemotron 3"
 
 #: dictee-setup.py:8033 dictee-setup.py:8049
 #, no-python-format
@@ -2469,14 +2467,31 @@ msgstr "Modelli di diarizzazione"
 msgid ""
 "Diarization identifies <b>who speaks when</b> in a recording. It is used by "
 "the Transcribe window (Diarization toggle) and by Live meeting, and works "
-"with every ASR backend.<br><br>When the multi-speaker model is installed, "
-"file transcription uses it automatically instead of Sortformer."
+"with every ASR backend."
 msgstr ""
 "La diarizzazione identifica <b>chi parla e quando</b> in una registrazione. "
 "È usata dalla finestra Trascrizione (interruttore Diarizzazione) e dalla "
-"Riunione dal vivo, e funziona con qualsiasi motore ASR.<br><br>Quando il "
-"modello multi-parlante è installato, la trascrizione dei file lo usa "
-"automaticamente al posto di Sortformer."
+"Riunione dal vivo, e funziona con qualsiasi motore ASR."
+
+#: dictee-setup.py:10021
+msgid "Retired models"
+msgstr "Modelli ritirati"
+
+#: dictee-setup.py:10025
+msgid ""
+"Nemotron 3 replaced these diarization engines in dictee 1.4: their models "
+"are no longer used and can be deleted."
+msgstr ""
+"Nemotron 3 ha sostituito questi motori di diarizzazione in dictee 1.4: i loro "
+"modelli non sono più usati e possono essere eliminati."
+
+#: dictee-setup.py:10035
+msgid "{name}: {size} MB"
+msgstr "{name}: {size} MB"
+
+#: dictee-setup.py:10061
+msgid "Could not delete {name}."
+msgstr "Impossibile eliminare {name}."
 
 #: dictee-setup.py:9548
 msgid "MOSS (integrated, one pass)"

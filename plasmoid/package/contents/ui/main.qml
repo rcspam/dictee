@@ -242,9 +242,6 @@ PlasmoidItem {
                         root.installedTranslate = trList
                     }
                 }
-                if (parts.length > 2) {
-                    root.sortformerAvailable = parts[2].trim().indexOf("sortformer") !== -1
-                }
             } else if (source === listAudioSourcesCmd) {
                 var lines = stdout.trim().split("\n").filter(function(s) { return s.length > 0 })
                 var sources = []
@@ -387,7 +384,6 @@ PlasmoidItem {
     property string currentTranslateBackend: "google"
     property var installedAsr: ["parakeet", "canary", "vosk", "whisper", "whisper-rust", "nemotron", "kyutai"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
-    property bool sortformerAvailable: false  // updated by checkInstalledCmd
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
     property bool micMuted: false
     property bool micSliderActive: false  // user is dragging the mic slider — pause live re-read
@@ -510,9 +506,7 @@ PlasmoidItem {
         "echo ---; " +
         "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
         "command -v ollama >/dev/null 2>&1 && { m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); ollama list 2>/dev/null | grep -q \"${m%%:*}\" && echo ollama; }; " +
-        "command -v docker >/dev/null 2>&1 && echo libretranslate; " +
-        "echo ---; " +
-        "{ [ -d /usr/share/dictee/sortformer ] || [ -d \"$dd/sortformer\" ]; } && echo sortformer'"
+        "command -v docker >/dev/null 2>&1 && echo libretranslate'"
 
     property string lastTranslateBackendForLangs: ""
     property bool ltRunning: false

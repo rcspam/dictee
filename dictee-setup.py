@@ -2270,7 +2270,6 @@ class _RuleTranscribeThread(QThread):
 
 
 NEMOTRON_HF = "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
-DIAR_HF = "https://huggingface.co/avencera/speakrs-models/resolve/main"
 # onnx-community export of nvidia/Nemotron-3-Diarization, pinned to the
 # revision checked on 2026-10-03 (fp32, weights in model.onnx_data).
 NEMOTRON3_DIAR_HF = ("https://huggingface.co/onnx-community/Nemotron-3-Diarization-ONNX"
@@ -2292,7 +2291,7 @@ ASR_MODELS = [
             "Native punctuation and capitalization (no post-processing needed).<br><br>"
             "Recommended for <b>GPU with ≥ 4 GB VRAM</b> — fastest on CUDA Tensor Cores.<br>"
             "Used by: <code>transcribe</code>, <code>transcribe-daemon</code>, "
-            "<code>transcribe-diarize</code>, <code>dictee</code>"
+            "<code>dictee</code>"
         ),
         "dir": os.path.join(MODEL_DIR, "tdt"),
         "check_file": "encoder-model.onnx",
@@ -2332,26 +2331,6 @@ ASR_MODELS = [
             ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.int8.onnx", "encoder-model.int8.onnx"),
             ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/decoder_joint-model.int8.onnx", "decoder_joint-model.int8.onnx"),
             ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt", "vocab.txt"),
-        ],
-        "required": False,
-    },
-    {
-        "id": "sortformer",
-        "name": "Sortformer",
-        "desc": _("Speaker diarization add-on (~490 MB). Identifies up to "
-                  "4 speakers in a recording. Optional — only needed for "
-                  "speaker identification."),
-        "help": _(
-            "<b>Sortformer</b> — Speaker diarization model<br><br>"
-            "Identifies and separates up to <b>4 different speakers</b> in an audio recording.<br>"
-            "Labels each transcription segment with the speaker who said it.<br><br>"
-            "<b>Optional</b> — only needed if you want speaker identification.<br>"
-            "Used by: <code>transcribe-diarize</code>"
-        ),
-        "dir": os.path.join(MODEL_DIR, "sortformer"),
-        "check_file": "diar_streaming_sortformer_4spk-v2.1.onnx",
-        "files": [
-            ("https://huggingface.co/altunenes/parakeet-rs/resolve/main/diar_streaming_sortformer_4spk-v2.1.onnx", "diar_streaming_sortformer_4spk-v2.1.onnx"),
         ],
         "required": False,
     },
@@ -2398,43 +2377,6 @@ ASR_MODELS = [
             (f"{NEMOTRON_HF}/encoder.onnx.data", "encoder.onnx.data"),
             (f"{NEMOTRON_HF}/decoder_joint.onnx", "decoder_joint.onnx"),
             (f"{NEMOTRON_HF}/tokenizer.model", "tokenizer.model"),
-        ],
-        "required": False,
-    },
-    {
-        # In-house multi-speaker diarization engine (diarize-multi binary,
-        # src/diar/). Models from the speakrs project (Apache-2.0, not gated):
-        # pyannote segmentation-3.0 + WeSpeaker ResNet34 + Kaldi PLDA.
-        # plda_phi.npy is NOT downloaded: the engine derives phi from psi
-        # (src/diar/plda.rs).
-        "id": "diar",
-        "name": _("Multi-speaker diarization"),
-        "desc": _("Speaker diarization add-on without the 4-speaker cap "
-                  "(~60 MB). When installed, file transcription uses it "
-                  "instead of Sortformer."),
-        "help": _(
-            "<b>Multi-speaker diarization</b> — in-house engine<br><br>"
-            "Identifies speakers in a recording with <b>no fixed speaker "
-            "limit</b> (meetings with 5+ participants).<br>"
-            "pyannote segmentation-3.0 + WeSpeaker ResNet34 embeddings + "
-            "VBx clustering, GPU-accelerated with automatic CPU fallback.<br><br>"
-            "<b>Optional</b> — when installed, file transcription uses it "
-            "instead of Sortformer for speaker identification.<br>"
-            "Used by: <code>diarize-multi</code>"
-        ),
-        "dir": os.path.join(MODEL_DIR, "diar"),
-        "check_file": "segmentation-3.0.onnx",
-        "files": [
-            (f"{DIAR_HF}/segmentation-3.0.onnx", "segmentation-3.0.onnx"),
-            (f"{DIAR_HF}/wespeaker-voxceleb-resnet34.onnx", "wespeaker-voxceleb-resnet34.onnx"),
-            (f"{DIAR_HF}/wespeaker-voxceleb-resnet34.onnx.data", "wespeaker-voxceleb-resnet34.onnx.data"),
-            (f"{DIAR_HF}/wespeaker-voxceleb-resnet34.min_num_samples.txt", "wespeaker-voxceleb-resnet34.min_num_samples.txt"),
-            (f"{DIAR_HF}/plda_lda.npy", "plda_lda.npy"),
-            (f"{DIAR_HF}/plda_mean1.npy", "plda_mean1.npy"),
-            (f"{DIAR_HF}/plda_mean2.npy", "plda_mean2.npy"),
-            (f"{DIAR_HF}/plda_mu.npy", "plda_mu.npy"),
-            (f"{DIAR_HF}/plda_psi.npy", "plda_psi.npy"),
-            (f"{DIAR_HF}/plda_tr.npy", "plda_tr.npy"),
         ],
         "required": False,
     },
@@ -2516,6 +2458,36 @@ def any_parakeet_installed():
     was a bug."""
     return any(model_is_installed(m) for m in ASR_MODELS
                if m.get("quant") in ("fp32", "int8"))
+
+
+# Diarization models of the engines retired in 1.4 (Sortformer and the
+# in-house multi-speaker diarize-multi, replaced by Nemotron 3): no longer
+# downloadable; the Diarization page lists those still on disk, with a
+# button to delete them.
+RETIRED_MODELS = [
+    {"id": "sortformer", "name": "Sortformer",
+     "dir": os.path.join(MODEL_DIR, "sortformer")},
+    {"id": "diar", "name": _("Multi-speaker diarization"),
+     "dir": os.path.join(MODEL_DIR, "diar")},
+]
+
+
+def retired_model_dirs(model):
+    """The directories (system, then user) still holding a retired model."""
+    dirs = dict.fromkeys((model["dir"], model["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR)))
+    return [d for d in dirs if os.path.isdir(d) and os.listdir(d)]
+
+
+def dir_size_mb(path):
+    """Size of the files under `path`, in MB."""
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return round(total / 1e6)
 
 
 class ModelDownloadThread(QThread):
@@ -8504,7 +8476,7 @@ class DicteeSetupDialog(QDialog):
                 _("25 languages (FR, EN, DE, ES, IT, PT...)"),
                 _("Excellent transcription quality (WER ~8% FR, ~2% EN)"),
                 _("Runs on CPU or GPU (GPU 5x faster)"),
-                _("Speaker diarization with Sortformer add-on"),
+                _("Speaker diarization with Nemotron 3 add-on"),
                 # xgettext: no-python-format
                 _("100% local, no internet needed"),
             ], "2.5 Go | RAM ~1.5 Go | CPU ~0.8s / GPU ~0.16s"),
@@ -8544,7 +8516,7 @@ class DicteeSetupDialog(QDialog):
                     _("25 languages with built-in translation (25 langs to/from English)"),
                     "<span style='color: #ec0;'>" + _("No external translation service needed") + "</span>",
                     _("Excellent accuracy, comparable to Parakeet"),
-                    _("Speaker diarization with Sortformer add-on"),
+                    _("Speaker diarization with Nemotron 3 add-on"),
                     # xgettext: no-python-format
                     _("100% local, requires NVIDIA GPU (6+ Go VRAM)"),
                 ], "4.7 Go | VRAM ~5.3 Go | GPU ~0.7s"))
@@ -8652,7 +8624,7 @@ class DicteeSetupDialog(QDialog):
                 "25 languages (FR, EN, DE, ES, IT, PT...)",
                 "Excellent transcription quality (WER ~8% FR, ~2% EN)",
                 "Runs on CPU or GPU (GPU 5x faster)",
-                "Speaker diarization with Sortformer add-on",
+                "Speaker diarization with Nemotron 3 add-on",
                 "100% local, no internet needed",
             ],
             "specs": "2.5 Go | RAM ~1.5 Go | CPU ~0.8s / GPU ~0.16s",
@@ -8706,7 +8678,7 @@ class DicteeSetupDialog(QDialog):
                 "25 languages with built-in translation (25 langs to/from English)",
                 "No external translation service needed",
                 "Excellent accuracy, comparable to Parakeet",
-                "Speaker diarization with Sortformer add-on",
+                "Speaker diarization with Nemotron 3 add-on",
                 "100% local, requires NVIDIA GPU (6+ Go VRAM)",
             ],
             "specs": "4.7 Go | VRAM ~5.3 Go | GPU ~0.7s",
@@ -9795,11 +9767,6 @@ class DicteeSetupDialog(QDialog):
         self._update_venv_button(btn, model["name"], installed)
         btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
 
-        if model["id"] in ("sortformer", "nemotron3-diar"):
-            if not any_parakeet_installed() and not installed:
-                btn.setEnabled(False)
-                btn.setToolTip(_("Requires Parakeet-TDT 0.6B v3 (FP32 or int8) to be installed first"))
-
         btn_del = QPushButton()
         btn_del.setIcon(QIcon.fromTheme("edit-delete"))
         btn_del.setFixedWidth(28)
@@ -9845,7 +9812,7 @@ class DicteeSetupDialog(QDialog):
           │  Active variant: (•) int8   ( ) FP32         │
           │  ★ Recommended for your hardware: <variant>  │
           └──────────────────────────────────────────────┘
-          ┌─ Sortformer / Multi-speaker (optional) ──────┐
+          ┌─ Nemotron 3 Diarization (optional) ──────────┐
 
         include_diarization: the wizard keeps the diarization boxes here
         (single download page); the sidebar UI passes False because they
@@ -9970,17 +9937,6 @@ class DicteeSetupDialog(QDialog):
         lay_outer.addWidget(perf_box)
 
         if include_diarization:
-            # === Sortformer group box (separate, simple title) ===
-            sortformer_box = QGroupBox(_("Sortformer"))
-            sortformer_lay = QVBoxLayout(sortformer_box)
-            sortformer_lay.setContentsMargins(12, 12, 12, 10)
-            sortformer_lay.setSpacing(6)
-
-            for model in [m for m in ASR_MODELS if m["id"] == "sortformer"]:
-                _build_model_row(sortformer_lay, model)
-
-            lay_outer.addWidget(sortformer_box)
-
             # === Nemotron 3 Diarization group box (up to 8 speakers) ===
             nemotron3_box = QGroupBox(_("Nemotron 3 Diarization"))
             nemotron3_lay = QVBoxLayout(nemotron3_box)
@@ -9989,17 +9945,6 @@ class DicteeSetupDialog(QDialog):
             for model in [m for m in ASR_MODELS if m["id"] == "nemotron3-diar"]:
                 _build_model_row(nemotron3_lay, model)
             lay_outer.addWidget(nemotron3_box)
-
-            # === Multi-speaker diarization group box (in-house engine) ===
-            diar_box = QGroupBox(_("Multi-speaker diarization"))
-            diar_lay = QVBoxLayout(diar_box)
-            diar_lay.setContentsMargins(12, 12, 12, 10)
-            diar_lay.setSpacing(6)
-
-            for model in [m for m in ASR_MODELS if m["id"] == "diar"]:
-                _build_model_row(diar_lay, model)
-
-            lay_outer.addWidget(diar_box)
 
         parent_layout.addWidget(self.w_parakeet_options)
 
@@ -10018,21 +9963,11 @@ class DicteeSetupDialog(QDialog):
         desc = QLabel(_(
             "Diarization identifies <b>who speaks when</b> in a recording. "
             "It is used by the Transcribe window (Diarization toggle) and "
-            "by Live meeting, and works with every ASR backend.<br><br>"
-            "When the multi-speaker model is installed, file transcription "
-            "uses it automatically instead of Sortformer."
+            "by Live meeting, and works with every ASR backend."
         ))
         desc.setWordWrap(True)
         desc.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(desc)
-
-        sortformer_box = QGroupBox(_("Sortformer"))
-        sortformer_lay = QVBoxLayout(sortformer_box)
-        sortformer_lay.setContentsMargins(12, 12, 12, 10)
-        sortformer_lay.setSpacing(6)
-        for model in [m for m in ASR_MODELS if m["id"] == "sortformer"]:
-            self._build_model_row(sortformer_lay, model)
-        lay.addWidget(sortformer_box)
 
         nemotron3_box = QGroupBox(_("Nemotron 3 Diarization"))
         nemotron3_lay = QVBoxLayout(nemotron3_box)
@@ -10041,14 +9976,6 @@ class DicteeSetupDialog(QDialog):
         for model in [m for m in ASR_MODELS if m["id"] == "nemotron3-diar"]:
             self._build_model_row(nemotron3_lay, model)
         lay.addWidget(nemotron3_box)
-
-        diar_box = QGroupBox(_("Multi-speaker diarization"))
-        diar_lay = QVBoxLayout(diar_box)
-        diar_lay.setContentsMargins(12, 12, 12, 10)
-        diar_lay.setSpacing(6)
-        for model in [m for m in ASR_MODELS if m["id"] == "diar"]:
-            self._build_model_row(diar_lay, model)
-        lay.addWidget(diar_box)
 
         moss_box = QGroupBox(_("MOSS (integrated, one pass)"))
         moss_lay = QVBoxLayout(moss_box)
@@ -10079,8 +10006,63 @@ class DicteeSetupDialog(QDialog):
         moss_lay.addWidget(_moss_status)
         lay.addWidget(moss_box)
 
+        self._build_retired_models_box(lay)
+
         lay.addStretch(1)
         return page
+
+    def _build_retired_models_box(self, layout):
+        """The models of the diarization engines retired in 1.4 that are
+        still on disk, each with its size and a button to delete it.
+        Nothing when none is left."""
+        present = [m for m in RETIRED_MODELS if retired_model_dirs(m)]
+        if not present:
+            return
+        box = QGroupBox(_("Retired models"))
+        box_lay = QVBoxLayout(box)
+        box_lay.setContentsMargins(12, 12, 12, 10)
+        box_lay.setSpacing(6)
+        note = QLabel(_("Nemotron 3 replaced these diarization engines in dictee 1.4: "
+                        "their models are no longer used and can be deleted."))
+        note.setWordWrap(True)
+        box_lay.addWidget(note)
+        rows = []
+        for model in present:
+            row = QWidget()
+            row_lay = QHBoxLayout(row)
+            row_lay.setContentsMargins(0, 0, 0, 0)
+            size = sum(dir_size_mb(d) for d in retired_model_dirs(model))
+            row_lay.addWidget(QLabel(_("{name}: {size} MB").format(name=model["name"], size=size)), 1)
+            btn = QPushButton(QIcon.fromTheme("edit-delete"), _("Delete"))
+            btn.clicked.connect(
+                lambda checked, m=model, r=row: self._on_retired_model_delete(m, r, rows, box))
+            row_lay.addWidget(btn)
+            box_lay.addWidget(row)
+            rows.append(row)
+        layout.addWidget(box)
+
+    def _on_retired_model_delete(self, model, row, rows, box):
+        """Delete a retired model's directories after confirmation, with
+        pkexec where the system one is not writable."""
+        reply = QMessageBox.question(
+            self, _("Delete model"),
+            _("Delete {name} and free disk space?").format(name=model["name"]),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        for path in retired_model_dirs(model):
+            try:
+                shutil.rmtree(path)
+            except PermissionError:
+                subprocess.run(["pkexec", "rm", "-rf", path], capture_output=True, timeout=60)
+        if retired_model_dirs(model):
+            QMessageBox.warning(self, _("Delete model"),
+                                _("Could not delete {name}.").format(name=model["name"]))
+            return
+        row.setVisible(False)
+        if all(r.isHidden() for r in rows):
+            box.setVisible(False)
 
     def _build_vosk_options(self, parent_layout):
         """Build Vosk install + language widgets."""
@@ -18634,13 +18616,6 @@ class DicteeSetupDialog(QDialog):
             self._update_venv_button(w["button"], model["name"], True)
             w["button"].setToolTip("")
             w["btn_delete"].setVisible(True)
-            # If TDT just installed, enable the diarization model buttons
-            for dep in ("sortformer", "nemotron3-diar"):
-                if mid == "tdt" and dep in self._model_widgets:
-                    dep_w = self._model_widgets[dep]
-                    if not model_is_installed(dep_w["model"]):
-                        self._update_venv_button(dep_w["button"], dep_w["model"]["name"], False)
-                        dep_w["button"].setToolTip("")
             # A TDT variant just appeared: re-enable the int8/FP32 toggle if
             # both variants are now installed (otherwise it stays greyed out
             # until the window is reopened).
@@ -18690,13 +18665,6 @@ class DicteeSetupDialog(QDialog):
         w = self._model_widgets[mid]
         self._update_venv_button(w["button"], name, False)
         w["btn_delete"].setVisible(False)
-        # If TDT deleted, disable the diarization model downloads
-        for dep in ("sortformer", "nemotron3-diar"):
-            if mid == "tdt" and dep in self._model_widgets:
-                dep_w = self._model_widgets[dep]
-                if not model_is_installed(dep_w["model"]):
-                    dep_w["button"].setEnabled(False)
-                    dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
         # A TDT variant was removed: a single remaining variant must be
         # auto-resolved and the toggle disabled.
         if mid in ("tdt", "tdt-int8"):

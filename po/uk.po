@@ -302,8 +302,7 @@ msgid ""
 "English, Spanish, German, etc.<br>Native punctuation and capitalization (no "
 "post-processing needed).<br><br>Recommended for <b>GPU with ≥ 4 GB VRAM</b> "
 "— fastest on CUDA Tensor Cores.<br>Used by: <code>transcribe</code>, "
-"<code>transcribe-daemon</code>, <code>transcribe-diarize</code>, "
-"<code>dictee</code>"
+"<code>transcribe-daemon</code>, <code>dictee</code>"
 msgstr ""
 "<b>Parakeet-TDT 0.6B v3 — FP32</b><br><br>Повноточний варіант основної "
 "моделі транскрипції.<br>Кодувальник FastConformer + декодер Token-and-"
@@ -311,8 +310,7 @@ msgstr ""
 "англійську, іспанську, німецьку тощо.<br>Власна пунктуація та великі літери "
 "(без потреби в постобробці).<br><br>Рекомендовано для <b>GPU з ≥ 4 ГБ VRAM</"
 "b>: найшвидший на тензорних ядрах CUDA.<br>Використовується: "
-"<code>transcribe</code>, <code>transcribe-daemon</code>, <code>transcribe-"
-"diarize</code>, <code>dictee</code>"
+"<code>transcribe</code>, <code>transcribe-daemon</code>, <code>dictee</code>"
 
 #: dictee-setup.py:2189
 #, no-python-format
@@ -1980,8 +1978,8 @@ msgid "Runs on CPU or GPU (GPU 5x faster)"
 msgstr "Працює на CPU або GPU (GPU у 5 разів швидше)"
 
 #: dictee-setup.py:8031 dictee-setup.py:8071
-msgid "Speaker diarization with Sortformer add-on"
-msgstr "Діаризація мовців з додатком Sortformer"
+msgid "Speaker diarization with Nemotron 3 add-on"
+msgstr "Діаризація мовців з додатком Nemotron 3"
 
 #: dictee-setup.py:8033 dictee-setup.py:8049
 #, no-python-format
@@ -2454,13 +2452,31 @@ msgstr "Моделі діаризації"
 msgid ""
 "Diarization identifies <b>who speaks when</b> in a recording. It is used by "
 "the Transcribe window (Diarization toggle) and by Live meeting, and works "
-"with every ASR backend.<br><br>When the multi-speaker model is installed, "
-"file transcription uses it automatically instead of Sortformer."
+"with every ASR backend."
 msgstr ""
 "Діаризація визначає, <b>хто і коли говорить</b> у записі. Її використовують "
 "вікно транскрипції (перемикач «Діаризація») та жива зустріч, і вона працює з "
-"будь-яким рушієм ASR.<br><br>Коли встановлено багатомовцеву модель, "
-"транскрипція файлів автоматично використовує її замість Sortformer."
+"будь-яким рушієм ASR."
+
+#: dictee-setup.py:10021
+msgid "Retired models"
+msgstr "Вилучені моделі"
+
+#: dictee-setup.py:10025
+msgid ""
+"Nemotron 3 replaced these diarization engines in dictee 1.4: their models "
+"are no longer used and can be deleted."
+msgstr ""
+"У dictee 1.4 Nemotron 3 замінив ці рушії діаризації: їхні моделі більше не "
+"використовуються, їх можна видалити."
+
+#: dictee-setup.py:10035
+msgid "{name}: {size} MB"
+msgstr "{name}: {size} МБ"
+
+#: dictee-setup.py:10061
+msgid "Could not delete {name}."
+msgstr "Не вдалося видалити {name}."
 
 #: dictee-setup.py:9548
 msgid "MOSS (integrated, one pass)"

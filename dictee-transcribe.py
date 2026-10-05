@@ -590,7 +590,7 @@ SPEAKER_COLORS = [
     "#61afef",  # blue
     "#98c379",  # green
     "#d19a66",  # orange
-    # Speakers 4 to 7 (Nemotron 3 Diarization, diarize-multi)
+    # Speakers 4 to 7 (Nemotron 3 Diarization)
     "#c678dd",  # purple
     "#56b6c2",  # cyan
     "#e5c07b",  # yellow
@@ -1812,7 +1812,7 @@ def _build_trim_cmd(src, dst, start_s, end_s):
 
 
 def _parse_diarize_output(text, offset=0.0):
-    """Parse transcribe-diarize output into segments.
+    """Parse diarized transcript lines (`[a s - b s] Speaker N: text`) into segments.
 
     `offset` rebases the timestamps onto the ORIGINAL file when the audio was
     trimmed before transcription: the engines see a file starting at 0, but

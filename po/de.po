@@ -304,8 +304,7 @@ msgid ""
 "English, Spanish, German, etc.<br>Native punctuation and capitalization (no "
 "post-processing needed).<br><br>Recommended for <b>GPU with ≥ 4 GB VRAM</b> "
 "— fastest on CUDA Tensor Cores.<br>Used by: <code>transcribe</code>, "
-"<code>transcribe-daemon</code>, <code>transcribe-diarize</code>, "
-"<code>dictee</code>"
+"<code>transcribe-daemon</code>, <code>dictee</code>"
 msgstr ""
 "<b>Parakeet-TDT 0.6B v3 : FP32</b><br><br>Variante des "
 "Haupttranskriptionsmodells mit voller Genauigkeit.<br>FastConformer-Encoder "
@@ -314,8 +313,7 @@ msgstr ""
 "<br>Native Interpunktion und Großschreibung (keine Nachbearbeitung "
 "erforderlich).<br><br>Empfohlen für <b>GPU mit ≥ 4 GB VRAM</b>: am "
 "schnellsten auf CUDA-Tensor-Cores.<br>Verwendet von: <code>transcribe</"
-"code>, <code>transcribe-daemon</code>, <code>transcribe-diarize</code>, "
-"<code>dictee</code>"
+"code>, <code>transcribe-daemon</code>, <code>dictee</code>"
 
 #: dictee-setup.py:2189
 #, no-python-format
@@ -1991,8 +1989,8 @@ msgid "Runs on CPU or GPU (GPU 5x faster)"
 msgstr "Läuft auf CPU oder GPU (GPU 5× schneller)"
 
 #: dictee-setup.py:8031 dictee-setup.py:8071
-msgid "Speaker diarization with Sortformer add-on"
-msgstr "Sprecherdiarisierung mit Sortformer-Erweiterung"
+msgid "Speaker diarization with Nemotron 3 add-on"
+msgstr "Sprecherdiarisierung mit Nemotron-3-Erweiterung"
 
 #: dictee-setup.py:8033 dictee-setup.py:8049
 #, no-python-format
@@ -2474,14 +2472,31 @@ msgstr "Diarisierungs-Modelle"
 msgid ""
 "Diarization identifies <b>who speaks when</b> in a recording. It is used by "
 "the Transcribe window (Diarization toggle) and by Live meeting, and works "
-"with every ASR backend.<br><br>When the multi-speaker model is installed, "
-"file transcription uses it automatically instead of Sortformer."
+"with every ASR backend."
 msgstr ""
 "Die Diarisierung erkennt, <b>wer wann spricht</b>. Sie wird vom "
 "Transkriptionsfenster (Schalter Diarisierung) und von der Live-Besprechung "
-"genutzt und funktioniert mit jedem ASR-Backend.<br><br>Ist das Mehrsprecher-"
-"Modell installiert, nutzt die Dateitranskription es automatisch anstelle von "
-"Sortformer."
+"genutzt und funktioniert mit jedem ASR-Backend."
+
+#: dictee-setup.py:10021
+msgid "Retired models"
+msgstr "Ausgemusterte Modelle"
+
+#: dictee-setup.py:10025
+msgid ""
+"Nemotron 3 replaced these diarization engines in dictee 1.4: their models "
+"are no longer used and can be deleted."
+msgstr ""
+"Nemotron 3 hat diese Diarisierungs-Engines in dictee 1.4 ersetzt: Ihre "
+"Modelle werden nicht mehr verwendet und können gelöscht werden."
+
+#: dictee-setup.py:10035
+msgid "{name}: {size} MB"
+msgstr "{name}: {size} MB"
+
+#: dictee-setup.py:10061
+msgid "Could not delete {name}."
+msgstr "{name} konnte nicht gelöscht werden."
 
 #: dictee-setup.py:9548
 msgid "MOSS (integrated, one pass)"

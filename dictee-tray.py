@@ -356,15 +356,6 @@ def _maybe_sync_force_cpu(constraint, want_cpu_bool, current_fc_raw):
                       "1" if want_cpu_bool else "0"])
 
 
-def _sortformer_available():
-    """Check if the Sortformer diarization model is installed."""
-    dd = os.path.join(
-        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
-        "dictee", "sortformer",
-    )
-    return os.path.isdir("/usr/share/dictee/sortformer") or os.path.isdir(dd)
-
-
 def _translate_backend_available(key):
     """Check if a translation backend is usable."""
     if key in ("google", "bing"):
