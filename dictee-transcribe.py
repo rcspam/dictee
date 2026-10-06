@@ -5393,12 +5393,21 @@ class TranscribeWindow(QDialog):
             t.stop()
             self._moss_ticker = None
 
+    # The elapsed clock the run ticker puts at the end of the run status.
+    _RUN_CLOCK_RE = re.compile(r"\s*\(\d{2}:\d{2}(?::\d{2})?\)$")
+
     def _run_status(self, text):
         """Run-scoped status: stored on the run's target tab and displayed
         only while that tab is visible, so a background run never talks
         over the tab the user is reading (2026-07-21 — the status row now
         follows the tabs). Non-run messages (clipboard, exports...) keep
-        writing _lbl_status directly."""
+        writing _lbl_status directly.
+
+        While the run ticker runs, every line carries the elapsed clock at
+        once: a progress update used to drop it until the next tick, and
+        pieces transcribed several times a second made it blink."""
+        if getattr(self, '_run_ticker', None) is not None:
+            text = f"{self._RUN_CLOCK_RE.sub('', text)} ({self._run_clock()})"
         tgt = self._run_tab or getattr(self, '_text_edit', None)
         if tgt is not None:
             tgt._status_text = text
@@ -5418,18 +5427,18 @@ class TranscribeWindow(QDialog):
         self._run_ticker.timeout.connect(self._on_run_tick)
         self._run_ticker.start(1000)
 
-    def _on_run_tick(self):
-        tgt = self._run_tab or getattr(self, '_text_edit', None)
-        base = (getattr(tgt, '_status_text', "") or "") if tgt else ""
-        base = re.sub(r"\s*\(\d{2}:\d{2}(?::\d{2})?\)$", "", base)
-        if not base:
-            base = _("Transcribing...")
+    def _run_clock(self):
+        """Time since the run started: mm:ss, hh:mm:ss past an hour."""
         total = int(time.monotonic()
                     - getattr(self, '_start_time', time.monotonic()))
         h, rem = divmod(total, 3600)
         m, s = divmod(rem, 60)
-        clock = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
-        self._run_status(f"{base} ({clock})")
+        return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+    def _on_run_tick(self):
+        tgt = self._run_tab or getattr(self, '_text_edit', None)
+        base = (getattr(tgt, '_status_text', "") or "") if tgt else ""
+        self._run_status(self._RUN_CLOCK_RE.sub("", base) or _("Transcribing..."))
 
     def _stop_run_ticker(self):
         t = getattr(self, '_run_ticker', None)
