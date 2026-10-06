@@ -181,11 +181,9 @@ def list_past_meetings(base=None):
     """Return [(label, audio_path), ...] sorted recent→old, from
     ~/.local/share/dictee/meetings/*/meeting.meta.json (title + date)."""
     import json
-    # dictee-setup saves the folder in dictee.conf; the environment only
-    # carries the key when a caller set it on purpose.
-    base = (base or os.environ.get("DICTEE_MEETING_DIR")
-            or _read_conf().get("DICTEE_MEETING_DIR")
-            or os.path.join(os.path.expanduser("~"), ".local/share/dictee/meetings"))
+    base = base or os.environ.get(
+        "DICTEE_MEETING_DIR",
+        os.path.join(os.path.expanduser("~"), ".local/share/dictee/meetings"))
     out = []
     if not os.path.isdir(base):
         return out
