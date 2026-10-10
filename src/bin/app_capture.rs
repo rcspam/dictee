@@ -1,16 +1,19 @@
-//! dictee-app-capture — maintain a virtual PipeWire sink fed by a target
+//! dictee-app-capture — maintain a virtual PipeWire source fed by a target
 //! application's audio streams (and optionally the mic), event-driven, so the
-//! meeting window can record ONLY that app via `pw-record stream.capture.sink`.
+//! meeting window can record ONLY that app with a plain `pw-record --target`.
 //!
-//! Mirrors OBS's obs-pipewire-audio-capture: link the app's output ports into a
-//! private null-sink instead of moving the stream, so the app keeps playing on
-//! the user's speakers. See docs/superpowers plan 2026-06-06-rust-app-audio-capture.
+//! Links the app's output ports into a private virtual source instead of moving
+//! the stream, so the app keeps playing on the user's speakers. A source, not a
+//! sink: WirePlumber 0.5.11+ (linking/mpris-pause.lua) pauses every MPRIS player
+//! linked to a sink that goes away, so a private sink paused the recorded player
+//! each time a capture stopped. A source is never a player's output to it.
 //!
 //! Usage:
-//!   dictee-app-capture --sink-name <name> --match <substr> [--match <substr>…] [--include-mic]
+//!   dictee-app-capture --source-name <name> --description <text> --match <key>
+//!                      [--match <key>…] [--include-mic]
 //!
-//! Prints `READY <sink_id>` to stdout once the sink and its input ports exist.
-//! Runs until SIGINT/SIGTERM, then quits the main loop; the non-linger sink and
+//! Prints `READY <source_id>` to stdout once the source and its input ports exist.
+//! Runs until SIGINT/SIGTERM, then quits the main loop; the non-linger source and
 //! all links are destroyed automatically when this client disconnects.
 
 use std::cell::RefCell;
@@ -23,21 +26,28 @@ use pipewire::types::ObjectType;
 use pipewire::{context::Context, main_loop::MainLoop, properties::properties};
 
 struct Args {
-    sink_name: String,
+    source_name: String,
+    description: String,
     matches: Vec<String>,
     include_mic: bool,
 }
 
 fn parse_args() -> Args {
-    let mut sink_name = "dictee_cap".to_string();
+    let mut source_name = "dictee_capture".to_string();
+    let mut description = "Dictee capture".to_string();
     let mut matches = Vec::new();
     let mut include_mic = false;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--sink-name" => {
+            "--source-name" => {
                 if let Some(s) = it.next() {
-                    sink_name = s;
+                    source_name = s;
+                }
+            }
+            "--description" => {
+                if let Some(s) = it.next() {
+                    description = s;
                 }
             }
             "--match" => {
@@ -54,7 +64,8 @@ fn parse_args() -> Args {
         std::process::exit(2);
     }
     Args {
-        sink_name,
+        source_name,
+        description,
         matches,
         include_mic,
     }
@@ -62,8 +73,8 @@ fn parse_args() -> Args {
 
 #[derive(Default)]
 struct State {
-    sink_id: Option<u32>,
-    sink_in_ports: HashMap<String, u32>, // channel -> sink input port id
+    source_id: Option<u32>,
+    source_in_ports: HashMap<String, u32>, // channel -> source input port id
     ready_printed: bool,
     target_nodes: HashSet<u32>, // matched app/mic node ids
     all_out_ports: HashMap<u32, Vec<(u32, String)>>, // node id -> [(out port id, channel)]
@@ -74,7 +85,7 @@ struct State {
 fn main() {
     let args = parse_args();
     let matches = Rc::new(args.matches);
-    let sink_name = Rc::new(args.sink_name);
+    let source_name = Rc::new(args.source_name);
     let include_mic = args.include_mic;
 
     pipewire::init();
@@ -92,7 +103,7 @@ fn main() {
     let core = context.connect(None).expect("connect");
     let registry = core.get_registry().expect("registry");
 
-    // Quit the loop on SIGINT/SIGTERM so teardown (drop of core → sink + links)
+    // Quit the loop on SIGINT/SIGTERM so teardown (drop of core → source + links)
     // happens cleanly inside the loop. SignalSources are #[must_use] + Drop, so
     // they must stay alive for the loop's lifetime.
     let ml_int = mainloop.clone();
@@ -104,26 +115,33 @@ fn main() {
         .loop_()
         .add_signal_local(Signal::SIGTERM, move || ml_term.quit());
 
-    // Virtual capture sink — auto-destroyed when this client exits (non-linger).
-    let _sink = core
+    // Virtual capture source, auto-destroyed when this client exits (non-linger).
+    // Its input ports take the app's links; recorders and meters read it like a
+    // microphone, and its volume applies to what they read.
+    let _source = core
         .create_object::<pipewire::node::Node>(
             "adapter",
             &properties! {
                 "factory.name" => "support.null-audio-sink",
-                "media.class" => "Audio/Sink",
-                "node.name" => sink_name.as_str(),
+                "media.class" => "Audio/Source/Virtual",
+                "node.name" => source_name.as_str(),
+                "node.description" => args.description.as_str(),
                 "node.virtual" => "true",
+                // What recorders read carries the raw signal unless asked
+                // otherwise: without this the source's volume (the meeting
+                // window's 🔊 slider) changed nothing.
+                "monitor.channel-volumes" => "true",
                 "audio.channels" => "2",
                 "audio.position" => "FL,FR",
             },
         )
-        .expect("create sink");
+        .expect("create source");
 
     let state = Rc::new(RefCell::new(State::default()));
     let st = state.clone();
     let core_cb = core.clone();
     let m = matches.clone();
-    let sn = sink_name.clone();
+    let sn = source_name.clone();
 
     let _listener = registry
         .add_listener_local()
@@ -135,7 +153,7 @@ fn main() {
             match g.type_ {
                 ObjectType::Node => {
                     if props.get("node.name") == Some(sn.as_str()) {
-                        st.borrow_mut().sink_id = Some(g.id);
+                        st.borrow_mut().source_id = Some(g.id);
                     } else if props.get("media.class") == Some("Stream/Output/Audio") {
                         let app = props.get("application.name").unwrap_or("").to_lowercase();
                         // Match on the FIRST WORD of application.name only — the exact
@@ -156,7 +174,7 @@ fn main() {
                         }
                     } else if include_mic && props.get("media.class") == Some("Audio/Source") {
                         // Default microphone: an Audio/Source whose node.name is not a
-                        // monitor of a sink. Link its output ports into the capture sink.
+                        // monitor of a sink. Link its output ports into the capture source.
                         let nn = props.get("node.name").unwrap_or("");
                         if !nn.ends_with(".monitor") {
                             let ports = {
@@ -179,10 +197,12 @@ fn main() {
                     if dir == "in" {
                         let ready = {
                             let mut s = st.borrow_mut();
-                            if Some(nid) == s.sink_id {
-                                s.sink_in_ports.insert(chan, g.id);
+                            if Some(nid) == s.source_id {
+                                s.source_in_ports.insert(chan, g.id);
                             }
-                            s.sink_id.is_some() && !s.sink_in_ports.is_empty() && !s.ready_printed
+                            s.source_id.is_some()
+                                && !s.source_in_ports.is_empty()
+                                && !s.ready_printed
                         };
                         if ready {
                             print_ready(&st);
@@ -223,13 +243,13 @@ fn block_term_signals() {
     }
 }
 
-/// Print `READY <sink_id>` to stdout exactly once and flush.
+/// Print `READY <source_id>` to stdout exactly once and flush.
 fn print_ready(st: &Rc<RefCell<State>>) {
     let mut s = st.borrow_mut();
     if s.ready_printed {
         return;
     }
-    if let Some(id) = s.sink_id {
+    if let Some(id) = s.source_id {
         s.ready_printed = true;
         let mut out = std::io::stdout();
         let _ = writeln!(out, "READY {id}");
@@ -238,7 +258,7 @@ fn print_ready(st: &Rc<RefCell<State>>) {
 }
 
 /// Link any already-seen out-ports of known target nodes (in case the target
-/// node + its ports appeared before the sink's input ports were ready).
+/// node + its ports appeared before the source's input ports were ready).
 fn drain_pending(core: &pipewire::core::Core, st: &Rc<RefCell<State>>) {
     let pending: Vec<(u32, Vec<(u32, String)>)> = {
         let s = st.borrow();
@@ -259,11 +279,11 @@ fn link_ports(
     ports: &[(u32, String)],
 ) {
     let mut s = st.borrow_mut();
-    let sink_id = match s.sink_id {
+    let source_id = match s.source_id {
         Some(id) => id,
         None => return,
     };
-    if s.sink_in_ports.is_empty() {
+    if s.source_in_ports.is_empty() {
         return;
     }
     for (out_port, chan) in ports {
@@ -271,9 +291,9 @@ fn link_ports(
             continue;
         }
         let in_port = match s
-            .sink_in_ports
+            .source_in_ports
             .get(chan)
-            .or_else(|| s.sink_in_ports.get("FL"))
+            .or_else(|| s.source_in_ports.get("FL"))
             .copied()
         {
             Some(p) => p,
@@ -284,7 +304,7 @@ fn link_ports(
             &properties! {
                 "link.output.node" => node_id.to_string(),
                 "link.output.port" => out_port.to_string(),
-                "link.input.node" => sink_id.to_string(),
+                "link.input.node" => source_id.to_string(),
                 "link.input.port" => in_port.to_string(),
                 "object.linger" => "false",
             },

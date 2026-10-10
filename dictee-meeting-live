@@ -19,7 +19,6 @@ import glob
 import json
 import os
 import re
-import select
 import shutil
 import signal
 import socket
@@ -375,22 +374,24 @@ class AudioCaptureWorker(QThread):
     """Continuous audio capture via pw-record into a growing WAV file.
 
     Honors the selected meeting source: a node.name (mic / *.monitor), an
-    'app:<name>' resolved to the sink the app plays to (captured via its
-    monitor), an empty value (default mic), or 'mix' — a transient null-sink
-    fed by two loopbacks (microphone + system monitor) torn down when capture
-    ends. Sink captures use 'pw-record -P stream.capture.sink=true'.
+    'app:<name>' recorded from the window's virtual source for that app
+    (app_source: its node name and an Event set once it is READY), an empty
+    value (default mic), or 'mix' — a transient null-sink fed by two loopbacks
+    (microphone + system monitor) torn down when capture ends. Sink captures
+    use 'pw-record -P stream.capture.sink=true'.
     """
 
     error = pyqtSignal(str)
     ready = pyqtSignal()   # emitted (worker thread) once the source is resolved
-                           #   and _appcap_sink / mix sink-input ids are set
+                           #   and the mix sink-input ids are set
 
     def __init__(self, output_wav: Path, source: str = "",
-                 include_mic: bool = False):
+                 include_mic: bool = False, app_source=None):
         super().__init__()
         self.output_wav = output_wav
         self.source = source or ""
-        self._include_mic = include_mic   # add mic to isolated app capture
+        self._include_mic = include_mic   # add mic to the app capture
+        self._app_source = app_source     # (node name, READY Event) or None
         self.proc = None
         self._stop = False
         # mix lifecycle (populated by _setup_mix_sink, cleared by _teardown_mix)
@@ -398,8 +399,6 @@ class AudioCaptureWorker(QThread):
         self._mic_input_id = None   # sink-input id of the mic loopback
         self._sys_input_id = None   # sink-input id of the system loopback
         self._sys_pct = 100         # 🔊 slider value, composed in rebalance_sys_leg
-        self._appcap_proc = None    # dictee-app-capture subprocess (app sources)
-        self._appcap_sink = None    # its virtual sink name
 
     def run(self):
         try:
@@ -407,15 +406,13 @@ class AudioCaptureWorker(QThread):
         except Exception as exc:
             self.error.emit(f"audio source setup failed: {exc}")
             self._teardown_mix()
-            self._stop_app_capture()
             return
         if target is None:
             # App capture failed — do NOT record anything (never the mic).
             self._teardown_mix()
-            self._stop_app_capture()
             return
-        # Source resolved: _appcap_sink / mix sink-input ids are now set, so the
-        # GUI can safely point meters + apply mix volumes (no fixed-delay guess).
+        # Source resolved: the mix sink-input ids are now set, so the GUI can
+        # safely point meters + apply mix volumes (no fixed-delay guess).
         self.ready.emit()
         cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1"]
         if capture_sink:
@@ -439,86 +436,39 @@ class AudioCaptureWorker(QThread):
             self.error.emit("pw-record not found. Is PipeWire installed?")
         finally:
             self._teardown_mix()
-            self._stop_app_capture()
 
     # ── source resolution ──────────────────────────────────────────────────
     def _resolve_target(self, source):
         """Resolve a meeting source value to (pw-record target, capture_sink).
 
         capture_sink=True means the target is a SINK whose monitor we tap with
-        'stream.capture.sink=true' (system audio, an app's sink, or the mix
-        null-sink). False means a normal capture source (a microphone).
+        'stream.capture.sink=true' (system audio or the mix null-sink). False
+        means a capture source (a microphone, or an app's virtual source).
         """
         if source == "mix":
             return self._setup_mix_sink(), True
         if not source:
             return "@DEFAULT_AUDIO_SOURCE@", False
         if source.startswith("app:"):
-            # Capture the app ISOLATED (app-only, never the mic) so its meter
-            # and its level stay independent of the microphone.
-            sink = self._start_app_capture(source[4:], include_mic=False)
-            if not sink:
+            # The app ISOLATED (app-only, never the mic): the window's virtual
+            # source for it, which carries the app's 🔊 level.
+            name, ready = self._app_source or (None, None)
+            if name is None or not ready.wait(4):
                 # NEVER fall back to the mic for an app source — that would
-                # silently record the wrong thing. None → run() aborts (the
-                # error was already emitted by _start_app_capture).
+                # silently record the wrong thing. None → run() aborts.
+                self.error.emit(
+                    f"Capture de « {source[4:]} » impossible : la capture "
+                    "d'application n'a pas démarré")
                 return None, False
             if self._include_mic:
-                # 'Add mic': mix the isolated app audio with the mic through two
+                # 'Add mic': mix the app with the mic through two
                 # independently-controllable loopbacks (same machinery as 'mix'),
                 # so the two levels — and the two meters — stay separate.
-                return self._setup_mix_sink(system_source=f"{sink}.monitor"), True
-            return sink, True
+                return self._setup_mix_sink(system_source=name), True
+            return name, False
         if source.endswith(".monitor"):
             return source[:-len(".monitor")], True   # tap that sink's monitor
         return source, False                         # microphone node.name
-
-    def _start_app_capture(self, name, include_mic=False):
-        """Spawn dictee-app-capture for app `name`; return its private sink
-        name once READY, else None (caller falls back to the default mic)."""
-        sink = f"dictee_cap_{os.getpid()}"
-        cmd = ["dictee-app-capture", "--sink-name", sink, "--match", name]
-        if include_mic:
-            cmd.append("--include-mic")
-        try:
-            self._appcap_proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        except FileNotFoundError:
-            self.error.emit(
-                f"Capture de « {name} » impossible : composant "
-                "dictee-app-capture introuvable")
-            return None
-        deadline = time.time() + 4
-        while True:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                break
-            if self._appcap_proc.poll() is not None:
-                break
-            rlist, _, _ = select.select(
-                [self._appcap_proc.stdout], [], [], remaining)
-            if not rlist:
-                continue  # timeout slice; loop re-checks remaining/poll
-            line = self._appcap_proc.stdout.readline()
-            if not line:           # EOF — process closed stdout
-                break
-            if line.startswith("READY"):
-                self._appcap_sink = sink
-                return sink
-        self._stop_app_capture()
-        self.error.emit(
-            f"Capture de « {name} » impossible : la capture d'application "
-            "n'a pas démarré")
-        return None
-
-    def _stop_app_capture(self):
-        if self._appcap_proc and self._appcap_proc.poll() is None:
-            self._appcap_proc.terminate()
-            try:
-                self._appcap_proc.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self._appcap_proc.kill()
-        self._appcap_proc = None
-        self._appcap_sink = None
 
     def _setup_mix_sink(self, system_source=None):
         """Build a transient null-sink fed by two loopbacks (mic + a 'system'
@@ -526,8 +476,8 @@ class AudioCaptureWorker(QThread):
         with stream.capture.sink=true).
 
         system_source is the second loopback's source: the default sink's
-        monitor for the plain 'mix' source, or an isolated app sink's monitor
-        for an 'app:' source with 'add mic' (so app + mic mix with independent
+        monitor for the plain 'mix' source, or an app's virtual source for an
+        'app:' source with 'add mic' (so app + mic mix with independent
         levels). Each loopback's sink-input is tagged with a findable media.name
         so its volume can be controlled independently (set_mic/system_volume).
         Modules are unloaded in _teardown_mix().
@@ -660,7 +610,6 @@ class AudioCaptureWorker(QThread):
                 self.proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-        self._stop_app_capture()
         self.wait(5000)   # join the QThread so run()'s teardown is done
 
     def pause(self):
@@ -1139,13 +1088,14 @@ class SoundTestDialog(QDialog):
         self._elapsed = 0
         src = self._win.cmb_source.currentData() or ""
         self._worker = AudioCaptureWorker(
-            Path(self._wav), src, self._win.chk_include_mic.isChecked())
+            Path(self._wav), src, self._win.chk_include_mic.isChecked(),
+            self._win._app_source_for_capture(src))
         self._worker.error.connect(self._on_error)
         # Same 🔊 level as a real meeting (the worker already pins both mix
         # legs and rebalances before pw-record starts).
         self._worker.ready.connect(
             lambda: self._worker and self._worker.set_system_volume(
-                self._win.slider_sys["slider"].value()))
+                self._win._sys_leg_level()))
         self._worker.start()
         self.btn_rec.setText("■ Arrêter")
         self.btn_play.setEnabled(False)
@@ -1255,12 +1205,13 @@ class MeetingWindow(QWidget):
         self.audio_worker = None
         self._meter_mic = None       # LevelMeterWorker for the 🎤 flow
         self._meter_sys = None       # LevelMeterWorker for the 🔊 flow
-        # Dedicated dictee-app-capture for an app source's ISOLATED 🔊 meter
-        # preview (before recording) — so the meter shows only that app.
-        self._preview_proc = None    # QProcess
-        self._preview_app = None
-        self._preview_sink = None
-        self._preview_ready = False
+        # The selected app's virtual source (dictee-app-capture), kept for the
+        # window's life: the 🔊 meter and the recording both read it, so no
+        # capture ever stops at Play or Stop.
+        self._app_source_proc = None   # QProcess
+        self._app_source_key = None
+        self._app_source_name = None
+        self._app_source_ready = threading.Event()
         self.meeting_dir = None
         self.audio_wav = None
         self.transcript_path = None
@@ -1535,8 +1486,8 @@ class MeetingWindow(QWidget):
         left_col.addLayout(diar_row)
 
         # "Add mic" toggle: when an app source is selected, also mix the
-        # microphone into the isolated app capture (passed to dictee-app-capture
-        # as --include-mic). Harmless for other sources.
+        # microphone with the app (two loopbacks, see _setup_mix_sink).
+        # Harmless for other sources.
         self.chk_include_mic = QCheckBox("Ajouter le micro")
         self.chk_include_mic.setChecked(self._meeting_include_mic())
         self.chk_include_mic.toggled.connect(self._on_include_mic_toggled)
@@ -1894,16 +1845,15 @@ class MeetingWindow(QWidget):
         src = self.cmb_source.currentData() or ""
         self._save_source_level(src, v)   # remember across sessions
         w = self.audio_worker
-        if w and w._sys_input_id:
-            # mix, or app+mic: the system/app contribution is a dedicated
-            # loopback whose volume is independent of the mic.
+        if src.startswith("app:"):
+            # The app's level lives on its virtual source, with or without the
+            # mic: what the recorder, the mix loopback and the meter read (the
+            # app's own playback is untouched).
+            self._apply_app_source_level()
+        elif w and w._sys_input_id:
+            # mix: the system contribution is a dedicated loopback whose
+            # volume is independent of the mic.
             w.set_system_volume(v)
-        elif src.startswith("app:"):
-            # app-only (no mic): attenuate the private isolated capture sink
-            # (does NOT touch the app's real playback).
-            if w and w._appcap_sink:
-                self._pactl_vol(
-                    ["set-sink-volume", w._appcap_sink, f"{v}%"])
         elif src.endswith(".monitor"):
             self._pactl_vol(
                 ["set-sink-volume", src[:-len(".monitor")], f"{v}%"])
@@ -1913,7 +1863,13 @@ class MeetingWindow(QWidget):
         down to the mic leg's level so both legs record at comparable levels
         (see rebalance_sys_leg)."""
         if self.audio_worker:
-            self.audio_worker.set_system_volume(self.slider_sys["slider"].value())
+            self.audio_worker.set_system_volume(self._sys_leg_level())
+
+    def _sys_leg_level(self):
+        """The 🔊 level of the mix's system loopback: the slider for 'mix', 100
+        for an app, whose level is already on its virtual source."""
+        src = self.cmb_source.currentData() or ""
+        return 100 if src.startswith("app:") else self.slider_sys["slider"].value()
 
     # ── Per-source 🔊 level persistence (meeting-only JSON, not dictee.conf
     #    which is bash-sourced) ────────────────────────────────────────────────
@@ -1966,7 +1922,7 @@ class MeetingWindow(QWidget):
 
     def _on_capture_ready(self):
         """Capture resolved (worker signal): apply mix levels + re-point meters
-        (for an app source the 🔊 meter now reads the private isolated sink)."""
+        (with 'add mic' the 🔊 meter now reads the mix)."""
         if self.audio_worker and self.audio_worker._sys_input_id:
             # mix, or app+mic: push the initial 🔊 level onto the system loopback.
             self._apply_mix_levels()
@@ -1988,11 +1944,10 @@ class MeetingWindow(QWidget):
         if self.audio_worker and self.audio_worker._mix_modules:
             return "dictee_mix.monitor"
         if src.startswith("app:"):
-            # ALWAYS isolated: while recording, the worker's private sink; before
-            # recording, a dedicated preview sink (handled by _ensure_preview_appcap,
-            # not here). Never the whole device sink, so other apps never move it.
-            if self.audio_worker and self.audio_worker._appcap_sink:
-                return f"{self.audio_worker._appcap_sink}.monitor"
+            # ALWAYS isolated: the app's virtual source, once READY. Never the
+            # whole device sink, so other apps never move it.
+            if self._app_source_ready.is_set():
+                return self._app_source_name
             return None
         try:
             sink = subprocess.check_output(
@@ -2017,8 +1972,11 @@ class MeetingWindow(QWidget):
         """(Re)start a parec peak-meter per active flow — runs live whenever the
         window is visible, so the VU bars move even before recording."""
         self._stop_meters()
+        src = self.cmb_source.currentData() or ""
+        if not src.startswith("app:") or not (self.isVisible() or self.audio_worker):
+            # Kept while recording even when hidden: the recorder reads it.
+            self._stop_app_source()
         if not self.isVisible():
-            self._stop_preview_appcap()
             return
         mic_on, sys_on = self._active_flows()
         if mic_on:
@@ -2026,19 +1984,14 @@ class MeetingWindow(QWidget):
             self._meter_mic.level.connect(self._on_mic_level)
             self._meter_mic.start()
         if sys_on:
-            src = self.cmb_source.currentData() or ""
-            recording = bool(self.audio_worker and self.audio_worker._appcap_sink)
-            if src.startswith("app:") and not recording:
-                # Isolated preview: run a dedicated dictee-app-capture for this
-                # app so the 🔊 meter shows ONLY it (not every app on the sink).
-                self._ensure_preview_appcap(src[4:])
-            else:
-                self._stop_preview_appcap()
-                dev = self._sys_meter_device()
-                # None would make parec read the DEFAULT SOURCE (the mic) — only
-                # start when a real sink/monitor is resolved.
-                if dev:
-                    self._start_sys_meter_on(dev)
+            if src.startswith("app:"):
+                self._ensure_app_source(src[4:])
+            dev = self._sys_meter_device()
+            # None would make parec read the DEFAULT SOURCE (the mic) — only
+            # start when a real source/monitor is resolved (an app source not
+            # READY yet starts its meter in _on_app_source_output).
+            if dev:
+                self._start_sys_meter_on(dev)
 
     def _start_sys_meter_on(self, device):
         if self._meter_sys:
@@ -2047,47 +2000,67 @@ class MeetingWindow(QWidget):
         self._meter_sys.level.connect(self._on_sys_level)
         self._meter_sys.start()
 
-    def _ensure_preview_appcap(self, name):
-        """Keep a dedicated dictee-app-capture running for app `name` and meter
-        its private sink — the isolated 🔊 preview before recording."""
-        if self._preview_app == name and self._preview_proc is not None:
-            if self._preview_ready:
-                self._start_sys_meter_on(f"{self._preview_sink}.monitor")
+    def _ensure_app_source(self, key):
+        """Keep dictee-app-capture running for app `key`: its virtual source
+        is the app's only capture while the window has it selected. A source,
+        not a sink: WirePlumber pauses a player whose output sink goes away."""
+        if self._app_source_key == key and self._app_source_proc is not None:
             return
-        self._stop_preview_appcap()
+        self._stop_app_source()
         if shutil.which("dictee-app-capture") is None:
             return
         from PyQt6.QtCore import QProcess
-        self._preview_app = name
-        self._preview_sink = f"dictee_cap_prev_{os.getpid()}"
-        self._preview_ready = False
-        self._preview_proc = QProcess(self)
-        self._preview_proc.readyReadStandardOutput.connect(self._on_preview_output)
-        self._preview_proc.start(
-            "dictee-app-capture", ["--sink-name", self._preview_sink, "--match", name])
+        label = self.cmb_source.currentText().split(" — ")[0]
+        self._app_source_key = key
+        self._app_source_name = f"dictee_meeting_{os.getpid()}_{key}"
+        self._app_source_proc = QProcess(self)
+        self._app_source_proc.readyReadStandardOutput.connect(self._on_app_source_output)
+        self._app_source_proc.start(
+            "dictee-app-capture",
+            ["--source-name", self._app_source_name,
+             "--description", f"Dictée réunion : {label}", "--match", key])
 
-    def _on_preview_output(self):
-        if not self._preview_proc:
+    def _on_app_source_output(self):
+        if not self._app_source_proc:
             return
-        out = bytes(self._preview_proc.readAllStandardOutput()).decode("utf-8", "replace")
-        if "READY" in out and not self._preview_ready:
-            self._preview_ready = True
-            self._start_sys_meter_on(f"{self._preview_sink}.monitor")
+        out = bytes(self._app_source_proc.readAllStandardOutput()).decode("utf-8", "replace")
+        if "READY" in out and not self._app_source_ready.is_set():
+            self._app_source_ready.set()
+            self._apply_app_source_level()
+            if self.isVisible():
+                dev = self._sys_meter_device()
+                if dev:
+                    self._start_sys_meter_on(dev)
 
-    def _stop_preview_appcap(self):
-        if self._preview_proc is not None:
+    def _apply_app_source_level(self):
+        """The 🔊 slider onto the app's virtual source (cubic, like pactl)."""
+        if self._app_source_ready.is_set():
+            self._pactl_vol(["set-source-volume", self._app_source_name,
+                             f"{self.slider_sys['slider'].value()}%"])
+
+    def _app_source_for_capture(self, source):
+        """(node name, READY Event) of the app source a capture records, or
+        None for other sources. Started here if it is not running yet: the
+        capture waits for READY."""
+        if not source.startswith("app:"):
+            return None
+        self._ensure_app_source(source[4:])
+        return self._app_source_name, self._app_source_ready
+
+    def _stop_app_source(self):
+        if self._app_source_proc is not None:
             try:
-                self._preview_proc.readyReadStandardOutput.disconnect()
+                self._app_source_proc.readyReadStandardOutput.disconnect()
             except (TypeError, RuntimeError):
                 pass
-            self._preview_proc.terminate()
-            if not self._preview_proc.waitForFinished(1000):
-                self._preview_proc.kill()
-                self._preview_proc.waitForFinished(500)
-            self._preview_proc = None
-        self._preview_app = None
-        self._preview_sink = None
-        self._preview_ready = False
+            self._app_source_proc.terminate()
+            if not self._app_source_proc.waitForFinished(1000):
+                self._app_source_proc.kill()
+                self._app_source_proc.waitForFinished(500)
+            self._app_source_proc = None
+        self._app_source_key = None
+        self._app_source_name = None
+        self._app_source_ready.clear()
 
     def _stop_meters(self):
         for attr in ("_meter_mic", "_meter_sys"):
@@ -2105,7 +2078,8 @@ class MeetingWindow(QWidget):
     def hideEvent(self, e):
         super().hideEvent(e)
         self._stop_meters()
-        self._stop_preview_appcap()
+        if not self.audio_worker:
+            self._stop_app_source()
 
     def _conf_dict(self):
         """Parse ~/.config/dictee.conf into a {KEY: value} dict (DICTEE_* keys)."""
@@ -2269,7 +2243,8 @@ class MeetingWindow(QWidget):
 
         # Audio capture — honor the selected meeting source (incl. 'mix')
         self.audio_worker = AudioCaptureWorker(self.audio_wav, source,
-                                               self.chk_include_mic.isChecked())
+                                               self.chk_include_mic.isChecked(),
+                                               self._app_source_for_capture(source))
         self.audio_worker.error.connect(self._on_capture_failed)
         # KDE Do Not Disturb while recording: a notification "ding" lands on
         # the system leg of the mix far above the mic voice (the 11.5 s
@@ -2277,7 +2252,7 @@ class MeetingWindow(QWidget):
         # acoustically in every mode. Released in _finalize_stop; a crash
         # releases it automatically (bus-connection scoped, verified).
         self._inhibit_notifications()
-        # When the capture is actually resolved (mix inputs / app private sink
+        # When the capture is actually resolved (mix inputs / app source
         # ready), apply mix levels and re-point the meters — driven by the
         # worker's signal, not a fixed-delay guess that races on slow systems.
         self.audio_worker.ready.connect(self._on_capture_ready)
@@ -2592,7 +2567,7 @@ class MeetingWindow(QWidget):
             self.audio_worker.resume()   # ensure not paused so stop() is clean
             self.audio_worker.stop()     # joined: the WAV is complete
             self.audio_worker = None
-        self._refresh_meters()           # private app sink gone → re-resolve meters
+        self._refresh_meters()           # the mix is gone → re-resolve meters
 
         if self._live is not None and self._live.isRunning():
             # Keep the preview and its ASR daemon ALIVE until the last turns
@@ -2863,7 +2838,6 @@ class MeetingWindow(QWidget):
         self._mic_sync_timer.stop()
         self._mic_watcher.stop()
         self._stop_meters()
-        self._stop_preview_appcap()
         self._uninhibit_notifications()
         # Stop the stop-button pie + finalize watchdog if a stop was in flight.
         self._stop_stop_pie()
@@ -2881,6 +2855,9 @@ class MeetingWindow(QWidget):
             # a model subprocess possibly holding VRAM, is orphaned on close).
             self._stop_live_preview()
             self._stop_live_asr_daemon()
+        # After the recorder: without its source, pw-record would be moved to
+        # the default microphone for its last moments.
+        self._stop_app_source()
         # Reset state on window close (regardless of recording state)
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
