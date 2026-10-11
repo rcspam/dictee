@@ -108,6 +108,36 @@ def _transcribe_client_running():
         return False
 
 
+def keys_pass_through(state):
+    """True while the live meeting window owns the keyboard.
+
+    dictee-meeting-live writes "meeting-ui-open" when it shows and
+    "meeting-recording" while it captures. In both cases every key must
+    reach the applications untouched, the dictation key included: starting a
+    dictation on top of a meeting capture is never what the user meant.
+    """
+    return state in ("meeting-recording", "meeting-ui-open")
+
+
+def _meeting_live_running():
+    """True if a dictee-meeting-live window is alive for the current user.
+
+    A Python script's comm is "python3", so pgrep -x is useless here: match
+    the command line instead ("python3 /usr/bin/dictee-meeting-live"). When
+    pgrep itself cannot answer, say yes: keys keep passing through, which is
+    the state before this check existed, rather than stealing them from a
+    window that may well be open.
+    """
+    try:
+        return subprocess.run(
+            ["pgrep", "-u", str(os.getuid()), "-f", r"[/ ]dictee-meeting-live( |$)"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).returncode == 0
+    except Exception:
+        return True
+
+
 def read_state_with_cleanup():
     """Read state file, with stale-state self-healing.
 
@@ -127,6 +157,19 @@ def read_state_with_cleanup():
             except OSError:
                 pass
             return "idle"
+    # The live meeting window writes these two and is the only thing that
+    # clears them. PyQt6 aborts the process on an unhandled exception in a
+    # slot, closeEvent never runs, and the state would say "window open"
+    # until the next reboot: every key passed through, dictation dead, no
+    # message. Put it back to idle once the window is gone.
+    if keys_pass_through(state) and not _meeting_live_running():
+        try:
+            with open(STATE_FILE, "w") as f:
+                f.write("idle\n")
+            print(f"[ptt] stale state cleanup: {state} -> idle (no live meeting window)")
+        except OSError:
+            pass
+        return "idle"
     return state
 
 
@@ -165,6 +208,10 @@ STOP_COOLDOWN = 0.5   # 500ms — ignore KEY_DOWN parasites après stop
 PIDFILE_TIMEOUT = 3.0  # attente max PIDFILE au key-up
 MIN_HOLD_DURATION = 0.3  # 300ms — en dessous, cancel au lieu de transcrire
 RESCAN_INTERVAL = 10   # secondes entre rescans claviers (hotplug)
+# After a key capture, the keyboards are taken back only once no key is
+# physically held (see _regrab_devices). Past this many seconds the grab is
+# taken anyway, so a stuck hardware key cannot leave push-to-talk dead.
+REGRAB_MAX_WAIT = 5.0
 
 # Whitelist de sous-chaînes (lowercase) à autoriser en plus du filtre par défaut.
 # Peuplée dans main() depuis DICTEE_PTT_EXTRA_DEVICES. Permet aux outils de
@@ -381,6 +428,11 @@ class PttState:
         self.last_stop_time = 0
         self.last_cheatsheet_time = 0
         self.keys_held = set()
+        # The dictation key's press was passed to the applications (held with
+        # a modifier that is none of our chords): its repeats and its release
+        # must follow it, or the compositor keeps the key down and autorepeats
+        # it without end.
+        self.ptt_key_passed = False
 
     def _mod_held(self, mod_name):
         """Vérifie si un modificateur est maintenu."""
@@ -399,6 +451,8 @@ class PttState:
     def handle_event(self, code, value):
         """Traite un événement clavier. Retourne True si l'événement est consommé."""
         if value == KEY_REPEAT:
+            if code == self.key_dictee and self.ptt_key_passed:
+                return False
             return code in (self.key_dictee, self.key_translate, KEY_ESC)
 
         # Déduplique multi-claviers
@@ -454,6 +508,11 @@ class PttState:
             if self.key_translate and self.key_translate == self.key_dictee:
                 # Même touche pour dictée et traduction — router selon l'état
                 if value == KEY_UP:
+                    # The press went to the applications: so does the release,
+                    # else the passthrough keeps the key down for good.
+                    if self.ptt_key_passed:
+                        self.ptt_key_passed = False
+                        return False
                     # KEY_UP : router vers le handler actif, PAS selon le modificateur
                     # (l'utilisateur peut relâcher Alt avant F9)
                     if self.recording_translate:
@@ -473,7 +532,10 @@ class PttState:
                     elif not self._any_mod_held():
                         self._handle_dictee(value, now)
                     else:
-                        return False  # modificateur inconnu, laisser passer
+                        # Modificateur inconnu : la touche va aux applications,
+                        # avec ses répétitions et son relâchement (voir KEY_UP).
+                        self.ptt_key_passed = True
+                        return False
             else:
                 # Touches séparées — route directe
                 if self.mod_translate and self._mod_held(self.mod_translate):
@@ -669,6 +731,43 @@ def _passthrough_covers(ui, dev):
     return needed <= have
 
 
+def _release_virtual_keys(ui, reason):
+    """Release on the passthrough every key it still reports as pressed.
+
+    While the physical keyboards are grabbed, the passthrough is the only
+    keyboard the compositor sees. A key whose KEY_DOWN went through it and
+    whose KEY_UP never will (devices let go for a key capture, passthrough
+    replaced, daemon stopping) stays pressed for the compositor until the
+    session ends: Shift stuck, the dictation key leaking into applications,
+    autorepeat on a key nobody holds. The kernel keeps the exact key state of
+    the device (EVIOCGKEY) and drops a release for a key it does not see
+    down, so nothing spurious can come out of this. Returns the codes sent.
+    """
+    if ui is None or ui.device is None:
+        return []
+    try:
+        down = sorted(ui.device.active_keys())
+    except OSError:
+        return []
+    for code in down:
+        ui.write(EV_KEY, code, KEY_UP)
+    if down:
+        ui.syn()
+        print(f"[ptt] released {len(down)} virtual key(s) ({reason}): {down}")
+    return down
+
+
+def _physical_keys_down(devices):
+    """Union of the keys currently pressed on the given keyboards."""
+    down = set()
+    for d in devices:
+        try:
+            down.update(d.active_keys())
+        except OSError:
+            pass
+    return down
+
+
 def _rescan_keyboards(devices, ui=None):
     """Detect and grab newly plugged keyboards (hotplug).
 
@@ -687,6 +786,17 @@ def _rescan_keyboards(devices, ui=None):
     needs_recreate = False
     for new_dev in find_keyboards_evdev():
         if new_dev.path not in known_paths:
+            # A key held on the new keyboard right now was pressed for the
+            # compositor, and grabbing would steal its release (see the
+            # startup grab). Leave it for the next rescan.
+            try:
+                _held = new_dev.active_keys()
+            except (OSError, AttributeError):
+                _held = []
+            if _held:
+                print(f"[ptt] hotplug grab deferred: key(s) still held on {new_dev.name}: {sorted(_held)}")
+                new_dev.close()
+                continue
             try:
                 new_dev.grab()
                 devices.append(new_dev)
@@ -705,6 +815,9 @@ def _rescan_keyboards(devices, ui=None):
             # only the new device's extra axes stay silent until next rescan.
             print(f"[ptt] passthrough recreate failed: {e}", file=sys.stderr)
         else:
+            # The old passthrough goes away with whatever it holds pressed:
+            # let those keys go before it does, the new one starts clean.
+            _release_virtual_keys(ui, "passthrough recreated")
             try:
                 ui.close()
             except OSError:
@@ -757,7 +870,22 @@ def run_evdev(ptt):
         # the guard, ui.device.path raised AttributeError and crashed the daemon.
         print(f"[ptt] uinput: {ui.device.path if ui.device else '(unresolved)'}")
 
-        # Grab tous les claviers
+        # Grab tous les claviers, once no key is physically held. A key down
+        # at grab time had its press seen by the compositor on the physical
+        # keyboard (during the ungrabbed window of a restart, say), and the
+        # grab now steals its release: the compositor keeps it pressed and
+        # autorepeats it without end (measured with Alt+PTT held across a
+        # restart). Same rule as _regrab_devices, same bound.
+        _t0 = time.monotonic()
+        _held = _physical_keys_down(devices)
+        if _held:
+            print(f"[ptt] grab deferred: key(s) still held {sorted(_held)}")
+        while _held and running and time.monotonic() - _t0 < REGRAB_MAX_WAIT:
+            time.sleep(0.05)
+            _held = _physical_keys_down(devices)
+        if _held:
+            print(f"[ptt] grab forced after {REGRAB_MAX_WAIT:.0f}s, key(s) still held: "
+                  f"{sorted(_held)}", file=sys.stderr)
         for dev in devices:
             try:
                 dev.grab()
@@ -786,21 +914,56 @@ def run_evdev(ptt):
         # nothing when reading /dev/input directly. Re-emitting through our
         # uinput node is not enough — the events would carry our virtual
         # keyboard's name, not the real one.
-        paused = False
+        released = False          # keyboards currently let go by us
+        regrab_wait_since = None  # when _regrab_devices first found a key held
 
         def _release_devices():
+            # Keys still down on the passthrough got their KEY_DOWN from us;
+            # once the keyboards are let go, their KEY_UP lands on the physical
+            # device and the compositor would keep them pressed for good
+            # (Shift stuck after every key capture in dictee-setup).
+            nonlocal released
+            _release_virtual_keys(ui, "devices released")
             for d in devices:
                 try:
                     d.ungrab()
                 except OSError:
                     pass
+            released = True
 
         def _regrab_devices():
+            """Take the keyboards back, once no key is physically held.
+
+            A key down at grab time had its press seen by the compositor on
+            the physical keyboard, and the grab would now steal its release:
+            same stuck key, the other way round. So wait for the hands to be
+            off the keys (retried at every select timeout, at most
+            REGRAB_MAX_WAIT), then grab and drop from keys_held whatever was
+            released while the keyboards were not ours. Returns True once
+            the keyboards are grabbed again.
+            """
+            nonlocal released, regrab_wait_since
+            held = _physical_keys_down(devices)
+            now = time.monotonic()
+            if held:
+                if regrab_wait_since is None:
+                    regrab_wait_since = now
+                    print(f"[ptt] resume deferred: key(s) still held {sorted(held)}")
+                if now - regrab_wait_since < REGRAB_MAX_WAIT:
+                    return False
+                print(f"[ptt] resume forced after {REGRAB_MAX_WAIT:.0f}s, key(s) still held: "
+                      f"{sorted(held)}", file=sys.stderr)
+            regrab_wait_since = None
             for d in devices:
                 try:
                     d.grab()
                 except OSError as ex:
                     print(f"[ptt] regrab échoué {d.name}: {ex}", file=sys.stderr)
+            # Only ever remove: a key we saw pressed and that is no longer
+            # down was released while the compositor owned the keyboards.
+            ptt.keys_held &= _physical_keys_down(devices)
+            released = False
+            return True
 
         while running:
             # Nettoyer les devices morts
@@ -849,15 +1012,18 @@ def run_evdev(ptt):
                 # figer la saisie, donc l'auto-répétition parasite (issue #8).
                 # Also the safe point to hand the devices over to dictee-setup
                 # while it captures a key, and to take them back afterwards.
+                # A meeting state whose window died would pass every key
+                # through for good: heal it here, once a second at most,
+                # never on the key path (the check is a pgrep).
+                if keys_pass_through(read_state()):
+                    read_state_with_cleanup()
                 now_paused = pause_requested()
-                if now_paused != paused:
-                    paused = now_paused
-                    if paused:
-                        print("[ptt] pause: devices released for key capture")
-                        _release_devices()
-                    else:
+                if now_paused and not released:
+                    print("[ptt] pause: devices released for key capture")
+                    _release_devices()
+                elif not now_paused and released:
+                    if _regrab_devices():
                         print("[ptt] resume: devices grabbed again")
-                        _regrab_devices()
                 now_mono = time.monotonic()
                 if now_mono - last_rescan > RESCAN_INTERVAL:
                     last_rescan = now_mono
@@ -881,7 +1047,7 @@ def run_evdev(ptt):
                             continue
 
                         # Meeting live UI active (open or recording): forward keys, don't consume
-                        if read_state() in ("meeting-recording", "meeting-ui-open"):
+                        if keys_pass_through(read_state()):
                             ui.write_event(event)
                             continue
 
@@ -892,8 +1058,8 @@ def run_evdev(ptt):
                         # everything twice. Checked per event as well, because
                         # the release happens between two reads.
                         if pause_requested():
-                            if not paused:
-                                paused = True
+                            if not released:
+                                print("[ptt] pause: devices released for key capture")
                                 _release_devices()
                             continue
                         consumed = ptt.handle_event(event.code, event.value)
@@ -912,6 +1078,9 @@ def run_evdev(ptt):
     finally:
         # Ungrab + fermer proprement. Reachable even if UInput() raised
         # (ui is None then) or if SIGTERM arrived during the grab loop.
+        # Keys still pressed on the passthrough would outlive it in the
+        # compositor's view: let them go first.
+        _release_virtual_keys(ui, "shutdown")
         for dev in devices:
             try:
                 dev.ungrab()

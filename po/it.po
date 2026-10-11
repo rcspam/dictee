@@ -4848,3 +4848,79 @@ msgstr "<b>Nemotron 3 Diarization</b>: modello di diarizzazione di NVIDIA<br><br
 #: dictee-setup.py:10004 dictee-setup.py:10056
 msgid "Nemotron 3 Diarization"
 msgstr "Nemotron 3 Diarization"
+
+#: dictee-setup.py
+msgid "Mute playback while recording:"
+msgstr "Disattiva l'audio durante la registrazione:"
+
+#: dictee-setup.py
+msgid "Automatic (not on a headset)"
+msgstr "Automatico (non con le cuffie)"
+
+#: dictee-setup.py
+msgid "Always"
+msgstr "Sempre"
+
+#: dictee-setup.py
+msgid "Never"
+msgstr "Mai"
+
+#: dictee-setup.py
+msgid "Keeps the speakers out of the recording. Automatic skips the mute when the active output is a headset, where there is nothing to keep out."
+msgstr "Evita che gli altoparlanti finiscano nella registrazione. Automatico non disattiva l'audio quando l'uscita attiva è una cuffia."
+
+#: dictee-setup.py
+msgid "Lower to, instead of muting:"
+msgstr "Abbassa a, invece di disattivare:"
+
+#: dictee-setup.py
+msgid "Mute"
+msgstr "Muto"
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone."
+msgstr "0 disattiva l'audio, come prima. Qualsiasi altro valore lo limita a quella percentuale durante la registrazione e lo lascia stare se è già più basso."
+
+#: dictee-setup.py
+msgid "Lower to, on speakers:"
+msgstr "Abbassa a, sugli altoparlanti:"
+
+#: dictee-setup.py
+msgid "Lower to, on a headset:"
+msgstr "Abbassa a, con le cuffie:"
+
+#: dictee-setup.py
+msgid "Off"
+msgstr "Nessuno"
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower."
+msgstr "0 disattiva l'audio, come prima. Qualsiasi altro valore lo limita a quella percentuale durante la registrazione."
+
+#: dictee-setup.py
+msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
+msgstr "Le cuffie non vengono mai disattivate: nulla di ciò che riproducono raggiunge il microfono. 0 non le tocca, qualsiasi altro valore le limita durante la registrazione."
+
+#: dictee-setup.py
+msgid "Playback while recording:"
+msgstr "Audio durante la registrazione:"
+
+#: dictee-setup.py
+msgid "Muted"
+msgstr "Muto"
+
+#: dictee-setup.py
+msgid "Untouched"
+msgstr "Invariato"
+
+#: dictee-setup.py
+msgid "Keeps the speakers out of the recording. Slide left to mute, right to leave the sound alone, anywhere between to cap it at that level while you dictate."
+msgstr "Evita che gli altoparlanti finiscano nella registrazione. A sinistra disattiva, a destra non cambia nulla, in mezzo limita a quel livello."
+
+#: dictee-setup.py
+msgid "Speakers: muted by default, since what they play reaches the microphone and ends up in the transcription."
+msgstr "Altoparlanti: disattivati per impostazione predefinita, perché ciò che riproducono raggiunge il microfono."
+
+#: dictee-setup.py
+msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
+msgstr "Cuffie: invariate per impostazione predefinita, nulla raggiunge il microfono. Abbassale per continuare a sentire una chiamata più piano."

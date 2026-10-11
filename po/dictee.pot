@@ -4217,3 +4217,79 @@ msgstr ""
 #: dictee-setup.py:10004 dictee-setup.py:10056
 msgid "Nemotron 3 Diarization"
 msgstr ""
+
+#: dictee-setup.py
+msgid "Mute playback while recording:"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Automatic (not on a headset)"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Always"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Never"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Keeps the speakers out of the recording. Automatic skips the mute when the active output is a headset, where there is nothing to keep out."
+msgstr ""
+
+#: dictee-setup.py
+msgid "Lower to, instead of muting:"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Mute"
+msgstr ""
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone."
+msgstr ""
+
+#: dictee-setup.py
+msgid "Lower to, on speakers:"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Lower to, on a headset:"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Off"
+msgstr ""
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower."
+msgstr ""
+
+#: dictee-setup.py
+msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
+msgstr ""
+
+#: dictee-setup.py
+msgid "Playback while recording:"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Muted"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Untouched"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Keeps the speakers out of the recording. Slide left to mute, right to leave the sound alone, anywhere between to cap it at that level while you dictate."
+msgstr ""
+
+#: dictee-setup.py
+msgid "Speakers: muted by default, since what they play reaches the microphone and ends up in the transcription."
+msgstr ""
+
+#: dictee-setup.py
+msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
+msgstr ""

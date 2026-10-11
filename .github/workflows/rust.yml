@@ -120,6 +120,14 @@ jobs:
         python3 tests/offscreen-check_retired_models.py
       env:
         QT_QPA_PLATFORM: offscreen
+    # The sandboxed evdev loop on fake uinput keyboards: no key may stay
+    # pressed on the passthrough after a key capture, a hotplug or a stop.
+    - name: Run silence-threshold floor tests
+      run: python3 tests/offscreen-check_silence_floor.py
+      env:
+        QT_QPA_PLATFORM: offscreen
+    - name: Run stuck-keys tests (sandboxed dictee-ptt)
+      run: python3 tests/test-ptt-stuck-keys.py -v
 
   test-keyboard-detection:
     runs-on: ubuntu-latest
@@ -170,6 +178,8 @@ jobs:
       run: bash tests/test-install-arch-gnome.sh
     - name: Run dotoold not-started tests (all installers)
       run: bash tests/test-dotoold-not-started.sh
+    - name: Run mute-output decision tests
+      run: bash tests/test-mute-output.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest
