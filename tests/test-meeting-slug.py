@@ -149,3 +149,23 @@ def test_the_threshold_is_live_with_nemotron_3():
     ml.MeetingWindow._sync_diar_slider(win)
     assert win._diar_slider.enabled and win._diar_slider_val.enabled
     assert "MOSS" not in win._diar_slider.tip
+
+
+def test_only_a_meeting_folder_right_under_the_meetings_root_may_be_deleted(tmp_path, monkeypatch):
+    root = tmp_path / "meetings"
+    monkeypatch.setenv("DICTEE_MEETING_DIR", str(root))
+    meeting = ml.meeting_dir(title="essai")
+    assert ml.deletable_meeting_dir(meeting) == meeting.resolve()
+    assert ml.deletable_meeting_dir(None) is None
+    assert ml.deletable_meeting_dir(root) is None
+    nested = meeting / "sous-dossier"
+    nested.mkdir()
+    assert ml.deletable_meeting_dir(nested) is None
+    elsewhere = tmp_path / "ailleurs"
+    elsewhere.mkdir()
+    assert ml.deletable_meeting_dir(elsewhere) is None
+    assert ml.deletable_meeting_dir(root / ".." / "ailleurs") is None
+    (root / "lien").symlink_to(elsewhere)
+    assert ml.deletable_meeting_dir(root / "lien") is None
+    assert ml.deletable_meeting_dir(root / "absent") is None
+

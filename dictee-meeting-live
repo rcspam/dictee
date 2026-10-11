@@ -143,10 +143,26 @@ def slug_title(title):
     return s[:40].strip("-")
 
 
+def meetings_root():
+    """Where the meetings are recorded, one folder each."""
+    return Path(os.environ.get("DICTEE_MEETING_DIR",
+                               os.path.join(os.path.expanduser("~"),
+                                            ".local/share/dictee/meetings")))
+
+
+def deletable_meeting_dir(path):
+    """`path`, resolved, when it is a folder right under the meetings root:
+    the only kind a cancelled meeting may delete. None otherwise."""
+    if not path:
+        return None
+    folder = Path(path).resolve()
+    if folder.parent != meetings_root().resolve() or not folder.is_dir():
+        return None
+    return folder
+
+
 def meeting_dir(timestamp=None, title=""):
-    base_dir = os.environ.get("DICTEE_MEETING_DIR",
-                              os.path.join(os.path.expanduser("~"),
-                                           ".local/share/dictee/meetings"))
+    base_dir = meetings_root()
     ts = timestamp or datetime.now().strftime("%Y-%m-%d-%H%M")
     sl = slug_title(title)
     name = f"{ts}_{sl}" if sl else ts
@@ -1293,6 +1309,7 @@ class MeetingWindow(QWidget):
         self.btn_start.setEnabled(start_on and not (dlg and dlg._worker))
         self.btn_stop.setEnabled(stop_on)
         self.btn_analyze.setEnabled(analyze_on)
+        self.btn_restart.setEnabled(state != "idle")    # nothing to cancel yet
         self.btn_sound_test.setEnabled(state in ("idle", "stopped"))
         # Source and title can't change mid-capture: only editable when idle/stopped.
         self.cmb_source.setEnabled(state in ("idle", "stopped"))
@@ -1521,13 +1538,22 @@ class MeetingWindow(QWidget):
         self.btn_stop.clicked.connect(self._on_stop)
         btn_row.addWidget(self.btn_stop)
 
-        self.btn_analyze = QPushButton("🔎")
+        self.btn_analyze = QPushButton("\U0001F4DD")   # notepad and pencil
         self.btn_analyze.setToolTip("Démarrer l'analyse")
         self.btn_analyze.setFixedSize(64, 64)
         self.btn_analyze.setStyleSheet("font-size: 22pt;")
         self.btn_analyze.setEnabled(False)
         self.btn_analyze.clicked.connect(self._on_analyze)
         btn_row.addWidget(self.btn_analyze)
+
+        self.btn_restart = QPushButton("↺")
+        self.btn_restart.setToolTip(
+            "Annuler cette réunion et en recommencer une")
+        self.btn_restart.setFixedSize(64, 64)
+        self.btn_restart.setStyleSheet("font-size: 22pt;")
+        self.btn_restart.setEnabled(False)
+        self.btn_restart.clicked.connect(self._on_restart)
+        btn_row.addWidget(self.btn_restart)
 
         self.btn_sound_test = QPushButton("Tester le son…")
         self.btn_sound_test.setToolTip(_tt(
@@ -1537,7 +1563,7 @@ class MeetingWindow(QWidget):
         btn_row.addWidget(self.btn_sound_test)
 
         # Pushed to the far right, AWAY from the meeting controls: it is NOT
-        # the meeting-analysis button (that is the 🔎 next to Stop, which
+        # the meeting-analysis button (that is the notepad next to Stop, which
         # hands the recorded file over): this one opens an EMPTY Transcribe
         # window. Its old label "Ouvrir l'analyse…" read as "analyse this
         # meeting" and the window then sat there doing nothing (2026-07-19).
@@ -1546,7 +1572,7 @@ class MeetingWindow(QWidget):
         self._btn_open_transcribe.setToolTip(_tt(
             "Ouvrir dictee-transcribe SANS la réunion en cours, pour analyser "
             "ou ré-transcrire un fichier passé (bouton History).\n"
-            "Pour analyser CETTE réunion : le bouton 🔎 après l'arrêt."))
+            "Pour analyser CETTE réunion : le bouton \U0001F4DD après l'arrêt."))
         self._btn_open_transcribe.clicked.connect(self._on_open_transcribe)
         btn_row.addWidget(self._btn_open_transcribe)
         left_col.addLayout(btn_row)
@@ -2765,6 +2791,80 @@ class MeetingWindow(QWidget):
 
     def _normalize_recording(self):
         normalize_wav(self.audio_wav)
+
+    def _on_restart(self):
+        """Cancel this meeting, during the recording or after it: once
+        confirmed, it stops, its folder is deleted and the window is back
+        where it was before Play, ready for another meeting."""
+        if not self._confirm_restart():
+            return
+        folder = self.meeting_dir
+        self._abort_meeting()
+        target = deletable_meeting_dir(folder)
+        if target is not None:
+            shutil.rmtree(target, ignore_errors=True)
+        elif folder is not None:
+            QMessageBox.warning(
+                self, "Réunion gardée",
+                f"Le dossier {folder} n'est pas dans le dossier des réunions : "
+                "il n'a pas été supprimé.")
+        self._clear_meeting()
+
+    def _abort_meeting(self):
+        """Stop the meeting at once: the recording, the live preview and its
+        ASR daemon, a stop in progress. The window's own captures (meters,
+        application source) go on."""
+        self._finalized = True       # a late end of the preview finalizes nothing
+        self._finalizing = False
+        if getattr(self, "_finalize_watchdog", None):
+            self._finalize_watchdog.stop()
+        self._stop_stop_pie()
+        self._tick_timer.stop()
+        if self.audio_worker:
+            self.audio_worker.resume()   # unfreeze if paused so stop() works
+            self.audio_worker.stop()
+            self.audio_worker = None
+        self._stop_live_preview()
+        self._stop_live_asr_daemon()     # restarts F9 if it was stopped
+        self._uninhibit_notifications()
+        watcher = getattr(self, "watcher", None)
+        if watcher is not None and watcher.files():
+            watcher.removePaths(watcher.files())
+        try:
+            Path("/dev/shm/.dictee_state").write_text("idle\n")
+        except OSError:
+            pass
+
+    def _clear_meeting(self):
+        """Back to the window as it opened: no meeting, nothing shown."""
+        self.meeting_dir = self.audio_wav = self.transcript_path = None
+        self.elapsed_seconds = 0
+        self.duration_label.setText("00:00")
+        self.transcript_view.clear()
+        self._speaker_name_map.clear()
+        for le in self._speaker_row_widgets.values():
+            self._speakers_form.removeRow(le)
+        self._speaker_row_widgets.clear()
+        self.speakers_seen = set()
+        self._refresh_meters()
+        self._set_state("idle")
+
+    def _confirm_restart(self):
+        name = self._title_edit.text().strip() or (
+            self.meeting_dir.name if self.meeting_dir else "")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Annuler la réunion")
+        box.setText(f"Annuler la réunion « {name} » "
+                    f"({self.duration_label.text()}) ?")
+        box.setInformativeText(
+            "Son enregistrement et son aperçu seront supprimés.")
+        delete = box.addButton("Supprimer et recommencer",
+                               QMessageBox.ButtonRole.DestructiveRole)
+        keep = box.addButton("Garder", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(keep)
+        box.exec()
+        return box.clickedButton() is delete
 
     def _on_analyze(self):
         # Launch dictee-transcribe on the recorded audio, then close.
