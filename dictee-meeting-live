@@ -302,8 +302,20 @@ def live_asr_daemon(spec, conf, sock):
     return cmd, env
 
 
-def analysis_command(audio, transcript, diar_engine, asr_spec, preview_whole):
-    """The dictee-transcribe command that opens a stopped meeting.
+def _tt(text):
+    """A tooltip that wraps at 400 px, as in every dictee window (Qt only
+    wraps rich text: a long plain one runs across the screen on one line).
+    Its line breaks are kept."""
+    if len(text) > 60:
+        return ("<p style='font-size:11pt; white-space:pre-wrap; "
+                "width:400px;'>" + text + "</p>")
+    return f"<span style='font-size:11pt'>{text}</span>"
+
+
+def analysis_command(audio, transcript, diar_engine, asr_spec, preview_whole,
+                     sensitivity):
+    """The dictee-transcribe command that opens a stopped meeting, with its
+    speaker threshold (`sensitivity`, 0 to 100).
 
     The live preview is the result when it covers the whole meeting with
     Nemotron 3: it is as accurate as a new analysis (SUMM-RE, 2026-10-04:
@@ -325,7 +337,7 @@ def analysis_command(audio, transcript, diar_engine, asr_spec, preview_whole):
         cmd += ["--transcript", str(transcript)]
     else:
         cmd += ["--diarize", "--diar-engine", diar_engine or "nemotron3"]
-    cmd += ["--asr-model", asr_spec]
+    cmd += ["--asr-model", asr_spec, "--sensitivity", str(sensitivity)]
     return cmd
 
 
@@ -1224,6 +1236,7 @@ class MeetingWindow(QWidget):
         self._speaker_row_widgets = {}   # {speaker_id: QLineEdit} for dynamic update
 
         self._live = None            # LivePreviewThread while recording
+        self._live_sensitivity = None   # threshold slider value it started with
 
         self._tick_timer = QTimer(self)
         self._tick_timer.timeout.connect(self._tick)
@@ -1403,9 +1416,9 @@ class MeetingWindow(QWidget):
             if live_asr_daemon(_spec, _conf, "")[0] is None:
                 self._model_combo.model().item(
                     self._model_combo.count() - 1).setEnabled(False)
-        self._model_combo.setToolTip(
+        self._model_combo.setToolTip(_tt(
             "Modèle ASR pour cette réunion. La taille de Whisper-Rust suit "
-            "le choix fait dans dictee-setup.")
+            "le choix fait dans dictee-setup."))
         # Default: saved DICTEE_MEETING_ASR_MODEL (older sized whisper-rust
         # specs folded into the engine-level one) when still offered, else
         # default_meeting_asr.
@@ -1438,7 +1451,7 @@ class MeetingWindow(QWidget):
             if not _ok:
                 self._diar_combo.model().item(
                     self._diar_combo.count() - 1).setEnabled(False)
-        self._diar_combo.setToolTip(
+        self._diar_combo.setToolTip(_tt(
             "Moteur de séparation des locuteurs.\n"
             "Nemotron 3 (NVIDIA) distingue jusqu'à 8 voix : il découpe "
             "l'aperçu en direct par tours de parole, puis fait l'analyse "
@@ -1446,7 +1459,7 @@ class MeetingWindow(QWidget):
             "MOSS transcrit et identifie les locuteurs en une passe, avec "
             "son propre moteur ASR : il ne sert QUE l'analyse finale au "
             "Stop (pas de mode flux, donc l'aperçu live garde Nemotron 3 et "
-            "le modèle choisi ne sert qu'à l'aperçu).")
+            "le modèle choisi ne sert qu'à l'aperçu)."))
         _saved_diar = (_conf.get("DICTEE_MEETING_DIAR_ENGINE") or "nemotron3").strip()
         _i = self._diar_combo.findData(_saved_diar)
         if _i >= 0 and self._diar_combo.model().item(_i).isEnabled():
@@ -1459,8 +1472,9 @@ class MeetingWindow(QWidget):
         diar_row.addWidget(self._diar_combo, 1)
         self._sync_model_combo_for_diar()
         # Detection threshold, same scale as dictee-transcribe's slider
-        # (50 % = engine default). Applied at meeting start; persisted in
-        # DICTEE_MEETING_DIAR_SENSITIVITY.
+        # (50 % = engine default). Read when the live preview starts; moved
+        # later, the meeting is analysed again (_preview_holds_meeting).
+        # Persisted in DICTEE_MEETING_DIAR_SENSITIVITY.
         self._diar_slider = QSlider(Qt.Orientation.Horizontal)
         self._diar_slider.setRange(0, 100)
         try:
@@ -1469,11 +1483,6 @@ class MeetingWindow(QWidget):
             _sens = 50
         self._diar_slider.setValue(max(0, min(100, _sens)))
         self._diar_slider.setFixedWidth(100)
-        self._diar_slider.setToolTip(
-            "Seuil de détection des locuteurs (appliqué au démarrage de la "
-            "réunion). ← plus de locuteurs détectés · plus de locuteurs "
-            "fusionnés →. 50 % = défaut ; montez vers 75 % si une même "
-            "personne est éclatée en plusieurs locuteurs.")
         self._diar_slider_val = QLabel(f"{self._diar_slider.value()}%")
         self._diar_slider_val.setFixedWidth(35)
         self._diar_slider.valueChanged.connect(
@@ -1484,6 +1493,9 @@ class MeetingWindow(QWidget):
         diar_row.addWidget(self._diar_slider)
         diar_row.addWidget(self._diar_slider_val)
         left_col.addLayout(diar_row)
+        self._diar_combo.currentIndexChanged.connect(
+            lambda _i: self._sync_diar_slider())
+        self._sync_diar_slider()
 
         # "Add mic" toggle: when an app source is selected, also mix the
         # microphone with the app (two loopbacks, see _setup_mix_sink).
@@ -1518,9 +1530,9 @@ class MeetingWindow(QWidget):
         btn_row.addWidget(self.btn_analyze)
 
         self.btn_sound_test = QPushButton("Tester le son…")
-        self.btn_sound_test.setToolTip(
+        self.btn_sound_test.setToolTip(_tt(
             "Enregistrer un court essai avec les réglages actuels et le "
-            "réécouter, avant de lancer la vraie réunion.")
+            "réécouter, avant de lancer la vraie réunion."))
         self.btn_sound_test.clicked.connect(self._open_sound_test)
         btn_row.addWidget(self.btn_sound_test)
 
@@ -1531,10 +1543,10 @@ class MeetingWindow(QWidget):
         # meeting" and the window then sat there doing nothing (2026-07-19).
         btn_row.addStretch(1)
         self._btn_open_transcribe = QPushButton("Analyser un autre fichier…")
-        self._btn_open_transcribe.setToolTip(
+        self._btn_open_transcribe.setToolTip(_tt(
             "Ouvrir dictee-transcribe SANS la réunion en cours, pour analyser "
             "ou ré-transcrire un fichier passé (bouton History).\n"
-            "Pour analyser CETTE réunion : le bouton 🔎 après l'arrêt.")
+            "Pour analyser CETTE réunion : le bouton 🔎 après l'arrêt."))
         self._btn_open_transcribe.clicked.connect(self._on_open_transcribe)
         btn_row.addWidget(self._btn_open_transcribe)
         left_col.addLayout(btn_row)
@@ -2102,12 +2114,29 @@ class MeetingWindow(QWidget):
         the user believe their model choice shapes the result."""
         _moss = self._diar_combo.currentData() == "moss"
         self._model_lbl.setText("Modèle (aperçu) :" if _moss else "Modèle :")
-        self._model_combo.setToolTip(
+        self._model_combo.setToolTip(_tt(
             "Modèle ASR de l'APERÇU LIVE uniquement : MOSS transcrit le "
             "fichier final avec son propre moteur."
             if _moss else
             "Modèle ASR pour cette réunion. La taille de Whisper-Rust suit "
-            "le choix fait dans dictee-setup.")
+            "le choix fait dans dictee-setup."))
+
+    def _sync_diar_slider(self):
+        """MOSS has no speaker threshold: the slider is greyed with it."""
+        moss = self._diar_combo.currentData() == "moss"
+        self._diar_slider.setEnabled(not moss)
+        self._diar_slider_val.setEnabled(not moss)
+        self._diar_slider.setToolTip(_tt(
+            "MOSS n'utilise pas de seuil." if moss else
+            "Seuil de détection de la parole.\n\n"
+            "← Plus bas : garde aussi les voix faibles ou lointaines, mais "
+            "peut prendre du bruit pour de la parole.\n"
+            "→ Plus haut : ne garde que la parole nette.\n"
+            "50 % convient dans la plupart des cas.\n\n"
+            "Si une même personne apparaît comme deux locuteurs différents, "
+            "ce curseur ne les regroupera pas.\n\n"
+            "Changé après le lancement de la réunion, il entraîne une "
+            "nouvelle analyse à l'ouverture."))
 
     def _write_conf_key(self, key, value):
         """Replace-or-append a key in ~/.config/dictee.conf, no duplicate line."""
@@ -2261,6 +2290,7 @@ class MeetingWindow(QWidget):
         self._finalized = False       # stop-finalize guard
         self._finalizing = False
         self._live_whole = False      # the live preview holds every turn
+        self._live_sensitivity = None
         self._live_asr_proc = None
         self._live_asr_sock = None
         self._daemon_was_active = False   # F9 services stopped to free VRAM
@@ -2306,10 +2336,11 @@ class MeetingWindow(QWidget):
             self._stop_live_asr_daemon()     # restarts F9 if it was stopped
             return
         self._live_asr_sock = sock
+        self._live_sensitivity = self._diar_slider.value()
         self._live = LivePreviewThread(
             self.audio_wav,
             ["diarize-only", "--stream", "--engine", "nemotron3", "--pieces",
-             "--sensitivity", f"{self._diar_slider.value() / 100.0:.2f}",
+             "--sensitivity", f"{self._live_sensitivity / 100.0:.2f}",
              diar_dir],
             sock, _build_subprocess_env())
         self._live.ready.connect(self._on_diarizer_ready)
@@ -2322,6 +2353,13 @@ class MeetingWindow(QWidget):
         self.status_label.setText(
             "⏳ Chargement des modèles : Nemotron 3 + "
             f"{self._model_combo.currentText()}…")
+
+    def _preview_holds_meeting(self):
+        """Whether the live preview is the meeting's result: it got every
+        turn, with the threshold the slider shows now (moved since the
+        start, the slider asks for another result)."""
+        return (getattr(self, "_live_whole", False)
+                and self._diar_slider.value() == self._live_sensitivity)
 
     def _preview_unavailable(self, reason):
         self.status_label.setText(
@@ -2762,7 +2800,8 @@ class MeetingWindow(QWidget):
                 analysis_command(self.audio_wav, self.transcript_path,
                                  self._diar_combo.currentData(),
                                  self._model_combo.currentData(),
-                                 getattr(self, "_live_whole", False)),
+                                 self._preview_holds_meeting(),
+                                 self._diar_slider.value()),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )

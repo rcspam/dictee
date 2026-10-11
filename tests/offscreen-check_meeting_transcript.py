@@ -7,6 +7,7 @@ Checks that:
   - the window opens a diarized result tab with those lines, playing AUDIO,
     and starts no process (nothing is transcribed again);
   - the speaker names given during the meeting (speakers.json) are applied;
+  - the meeting's speaker threshold (--sensitivity) is the slider's, 50 without;
   - an empty transcript says so and opens no result.
 
 QSettings and dictee.conf are read from a throwaway XDG_CONFIG_HOME.
@@ -83,6 +84,15 @@ assert tab._audio_path == audio, tab._audio_path
 assert not win._transcription_in_progress
 assert started == [], f"nothing may be transcribed again: {started}"
 assert "Alice" in tab._speaker_name_map.values(), tab._speaker_name_map
+assert win._sld_sensitivity.value() == 50, win._sld_sensitivity.value()
+win.close()
+
+win = mod.TranscribeWindow(file_path=audio, transcript=transcript, sensitivity=70)
+win.show()
+settle()
+assert win._sld_sensitivity.value() == 70, win._sld_sensitivity.value()
+assert win._lbl_sensitivity_val.text() == "70%", win._lbl_sensitivity_val.text()
+assert started == []
 win.close()
 
 empty = os.path.join(meeting, "empty.md")

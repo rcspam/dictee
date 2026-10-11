@@ -26,9 +26,10 @@ def test_analysis_opens_the_live_preview_when_it_covers_the_meeting(tmp_path):
     preview = tmp_path / "transcript-live.md"
     preview.write_text("# Réunion\n\n[0.500s - 3.200s] Speaker 0: Bonjour.\n",
                        encoding="utf-8")
-    assert ml.analysis_command(audio, preview, "nemotron3", "whisper-rust", True) == [
+    # with the meeting's threshold, for an analysis the user runs again there
+    assert ml.analysis_command(audio, preview, "nemotron3", "whisper-rust", True, 70) == [
         "dictee-transcribe", "--file", str(audio), "--transcript", str(preview),
-        "--asr-model", "whisper-rust"]
+        "--asr-model", "whisper-rust", "--sensitivity", "70"]
 
 
 def test_analysis_runs_again_for_moss_or_a_preview_with_holes(tmp_path):
@@ -41,9 +42,10 @@ def test_analysis_runs_again_for_moss_or_a_preview_with_holes(tmp_path):
                                       (preview, "nemotron3", False),
                                       (empty, "nemotron3", True),
                                       (tmp_path / "missing.md", "nemotron3", True)):
-        assert ml.analysis_command(audio, transcript, engine, "canary", whole) == [
+        assert ml.analysis_command(audio, transcript, engine, "canary", whole, 35) == [
             "dictee-transcribe", "--file", str(audio), "--diarize",
-            "--diar-engine", engine, "--asr-model", "canary"], (transcript, engine, whole)
+            "--diar-engine", engine, "--asr-model", "canary",
+            "--sensitivity", "35"], (transcript, engine, whole)
 
 
 def test_analysis_runs_again_for_nemotron_3_5(tmp_path):
@@ -51,9 +53,9 @@ def test_analysis_runs_again_for_nemotron_3_5(tmp_path):
     audio = tmp_path / "audio.wav"
     preview = tmp_path / "transcript-live.md"
     preview.write_text("[0.500s - 3.200s] Speaker 0: Bonjour.\n", encoding="utf-8")
-    assert ml.analysis_command(audio, preview, "nemotron3", "nemotron", True) == [
+    assert ml.analysis_command(audio, preview, "nemotron3", "nemotron", True, 50) == [
         "dictee-transcribe", "--file", str(audio), "--diarize",
-        "--diar-engine", "nemotron3", "--asr-model", "nemotron"]
+        "--diar-engine", "nemotron3", "--asr-model", "nemotron", "--sensitivity", "50"]
 
 
 def test_live_asr_daemon_recipes(monkeypatch, tmp_path):
@@ -96,3 +98,54 @@ def test_live_asr_daemon_says_what_is_missing(monkeypatch, tmp_path):
     cmd, env = ml.live_asr_daemon(
         "whisper-rust", {"DICTEE_WHISPER_RUST_MODEL": "large-v3-turbo"}, "/tmp/s.sock")
     assert env["DICTEE_WHISPER_RUST_GGML"].endswith("ggml-large-v3-turbo.bin")
+
+
+
+def _window(value, preview_value, whole=True):
+    """What MeetingWindow._preview_holds_meeting reads: the threshold slider,
+    the value the live preview started with, and whether it got every turn."""
+    from types import SimpleNamespace
+    return SimpleNamespace(_diar_slider=SimpleNamespace(value=lambda: value),
+                           _live_sensitivity=preview_value, _live_whole=whole)
+
+
+def test_the_preview_is_the_result_when_the_threshold_did_not_move():
+    assert ml.MeetingWindow._preview_holds_meeting(_window(50, 50)) is True
+    assert ml.MeetingWindow._preview_holds_meeting(_window(50, 50, whole=False)) is False
+
+
+def test_a_threshold_moved_after_the_start_has_the_meeting_analysed_again():
+    # the preview kept its starting threshold: the slider's is another result
+    assert ml.MeetingWindow._preview_holds_meeting(_window(70, 50)) is False
+
+
+class _Widget:
+    def __init__(self):
+        self.enabled, self.tip = True, ""
+
+    def setEnabled(self, on):
+        self.enabled = on
+
+    def setToolTip(self, tip):
+        self.tip = tip
+
+
+def _threshold_row(engine):
+    from types import SimpleNamespace
+    return SimpleNamespace(_diar_combo=SimpleNamespace(currentData=lambda: engine),
+                           _diar_slider=_Widget(), _diar_slider_val=_Widget())
+
+
+def test_the_threshold_is_greyed_with_moss_which_has_none():
+    win = _threshold_row("moss")
+    ml.MeetingWindow._sync_diar_slider(win)
+    assert not win._diar_slider.enabled and not win._diar_slider_val.enabled
+    assert "MOSS" in win._diar_slider.tip
+
+
+def test_the_threshold_is_live_with_nemotron_3():
+    win = _threshold_row("nemotron3")
+    win._diar_slider.enabled = False      # MOSS was chosen before
+    ml.MeetingWindow._sync_diar_slider(win)
+    assert win._diar_slider.enabled and win._diar_slider_val.enabled
+    assert "MOSS" not in win._diar_slider.tip

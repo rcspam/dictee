@@ -2924,7 +2924,7 @@ class TranscribeWindow(QDialog):
     """Main transcription/diarization window."""
 
     def __init__(self, file_path=None, auto_diarize=False, asr_model="",
-                 diar_engine="", transcript="", parent=None):
+                 diar_engine="", transcript="", sensitivity=None, parent=None):
         super().__init__(parent)
         self._asr_model = asr_model or ""
         self.setWindowTitle(_("Dictee - Transcribe file"))
@@ -2997,6 +2997,10 @@ class TranscribeWindow(QDialog):
             self._load_audio(file_path)
         if auto_diarize and _diarize_available():
             self._chk_diarize.setChecked(True)
+        # --sensitivity: the meeting's speaker threshold, before the analysis
+        # started below reads it
+        if sensitivity is not None:
+            self._sld_sensitivity.setValue(sensitivity)
         # --diar-engine (meeting-live hands its own engine choice over):
         # select it when usable, else keep the combo's persisted value
         # rather than failing a run the user cannot see being set up.
@@ -7174,6 +7178,9 @@ def main():
                              "result, without transcribing it ('[a s - b s] "
                              "Speaker N: text' lines, as dictee-meeting-live "
                              "writes them).")
+    parser.add_argument("--sensitivity", type=int, default=None,
+                        help="Speaker detection threshold, 0 to 100 as the "
+                             "window's slider (50 when not given).")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging to stderr and /tmp/dictee-transcribe.log")
     # Positional args: receive %F from .desktop / file-manager open-with /
@@ -7214,6 +7221,7 @@ def main():
         asr_model=args.asr_model,
         diar_engine=args.diar_engine,
         transcript=args.transcript,
+        sensitivity=args.sensitivity,
     )
     win.show()
     sys.exit(app.exec())
