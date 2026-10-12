@@ -4586,8 +4586,9 @@ msgstr "O seu computador usa esta tecla para {what}. Escolhê-la para o ditado r
 #~ msgid "Generate"
 #~ msgstr "Gerar"
 
-#~ msgid "Close"
-#~ msgstr "Fechar"
+#: dictee-transcribe.py
+msgid "Close"
+msgstr "Fechar"
 
 #, python-brace-format
 #~ msgid "Couldn't auto-load models ({err}). Click Refresh."

@@ -4010,3 +4010,7 @@ msgstr ""
 #: dictee-setup.py
 msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
 msgstr ""
+
+#: dictee-transcribe.py
+msgid "Close"
+msgstr ""

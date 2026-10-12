@@ -4623,8 +4623,9 @@ msgstr "Diese Taste wird von Ihrem Computer verwendet, um {what}. Wenn Sie sie f
 #~ msgid "Generate"
 #~ msgstr "Generieren"
 
-#~ msgid "Close"
-#~ msgstr "Schließen"
+#: dictee-transcribe.py
+msgid "Close"
+msgstr "Schließen"
 
 #, python-brace-format
 #~ msgid "Couldn't auto-load models ({err}). Click Refresh."

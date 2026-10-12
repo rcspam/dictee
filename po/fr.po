@@ -4608,8 +4608,9 @@ msgstr "Cette touche est utilisée par votre ordinateur pour {what}. La choisir 
 #~ msgid "Generate"
 #~ msgstr "Générer"
 
-#~ msgid "Close"
-#~ msgstr "Fermer"
+#: dictee-transcribe.py
+msgid "Close"
+msgstr "Fermer"
 
 #, python-brace-format
 #~ msgid "Couldn't auto-load models ({err}). Click Refresh."

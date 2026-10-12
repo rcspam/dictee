@@ -4578,8 +4578,9 @@ msgstr "Комп'ютер використовує цю клавішу для {w
 #~ msgid "Generate"
 #~ msgstr "Згенерувати"
 
-#~ msgid "Close"
-#~ msgstr "Закрити"
+#: dictee-transcribe.py
+msgid "Close"
+msgstr "Закрити"
 
 #, python-brace-format
 #~ msgid "Couldn't auto-load models ({err}). Click Refresh."
