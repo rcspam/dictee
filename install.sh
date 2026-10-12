@@ -877,7 +877,7 @@ EOF
         dictee-transcribe transcribe-daemon-vosk transcribe-daemon-whisper
         dictee-plasmoid-level dictee-plasmoid-level-daemon
         dictee-plasmoid-level-fft dotool dotoold dictee-reset
-        dictee-translate-langs dictee-audio-sources dictee-meeting-live
+        dictee-translate-langs dictee-audio-sources
         dictee-cheatsheet diarize-only transcribe-diarize-batch
     )
     # tests/test-tarball-bins.sh keeps this list, build-tar.sh and uninstall.sh

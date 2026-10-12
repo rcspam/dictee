@@ -19,7 +19,7 @@ PlasmoidItem {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
     Kirigami.Theme.inherit: false
 
-    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing", "meeting-ui-open", "meeting-recording"
+    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing"
     property string state: "offline"
 
     property bool dicteeInstalled: true
@@ -114,7 +114,7 @@ PlasmoidItem {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = true
                     // Polling lent : offline/idle — jamais pendant recording/transcribing
-                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing" && root.state !== "meeting-ui-open" && root.state !== "meeting-recording") {
+                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing") {
                         console.log("[dictee-plasmoid] daemonCheck: OFFLINE (root.state=" + root.state + ")")
                         root.state = "offline"
                     } else if (stdout !== "offline" && root.state === "offline") {
@@ -354,20 +354,12 @@ PlasmoidItem {
     // the supplementary groups of the graphical login session — if the
     // user was added to docker after that login (install.sh, postinst,
     // wizard's pkexec usermod), the new group only takes effect at next
-    // login. Without a bridge, the inspect call fails with permission
+    // login. Without `sg docker`, the inspect call fails with permission
     // denied → echo false → the plasmoid shows LT as down even when the
     // container is running. `sg docker -c …` runs the command with docker
-    // as primary group, no reboot needed; Arch dropped sg (#35) and ships
-    // util-linux's newgrp, which takes -c. Same order as dictee's
-    // _dotool_group_bridge. id -nG "$USER" reads /etc/group (persistent),
-    // id -nG alone the groups this process actually has.
-    property string ltCheckCmd: "bash -c '" +
-        "q=\"docker inspect -f {{.State.Running}} dictee-libretranslate 2>/dev/null || echo false\"; " +
-        "if id -nG 2>/dev/null | grep -qw docker; then bash -c \"$q\"; " +
-        "elif ! id -nG \"$USER\" 2>/dev/null | grep -qw docker; then echo false; " +
-        "elif command -v sg >/dev/null 2>&1; then sg docker -c \"$q\"; " +
-        "elif newgrp --help 2>&1 | grep -q -- -c; then newgrp docker -c \"$q\"; " +
-        "else echo false; fi'"
+    // as primary group, no reboot needed. id -nG "$USER" reads /etc/group
+    // (persistent), unlike groups/id without args (process-effective).
+    property string ltCheckCmd: "bash -c 'if id -nG \"$USER\" 2>/dev/null | grep -qw docker; then sg docker -c \"docker inspect -f {{.State.Running}} dictee-libretranslate 2>/dev/null || echo false\"; else echo false; fi'"
     // Ollama status: "ok" = running + model present, "no-model" = running but model missing, "stopped" = service down
     property string ollamaStatus: "ok"
     property string ollamaCheckCmd: "bash -c '" +
@@ -523,23 +515,9 @@ PlasmoidItem {
         running: true
         repeat: true
         triggeredOnStart: true
-        // Ticks since the last background refreshBackends().
-        property int backendsTick: 0
         onTriggered: {
             executable.run(daemonCheckCmd)
-            // refreshBackends() fans out to six external commands (wpctl, two
-            // dictee scripts, plus `sg docker … docker inspect` or an
-            // `ollama list`). At the 1.5 s default that is ~350 000 processes
-            // a day — and the values it feeds, ltRunning and ollamaStatus, are
-            // read only by FullRepresentation, i.e. only while the popup is
-            // open. onExpandedChanged already refreshes on open, so poll at
-            // full rate while expanded and keep a ~30 s pass in the background
-            // so a backend started meanwhile is still noticed.
-            var every = Math.max(1, Math.round(30000 / Math.max(1, interval)))
-            if (root.expanded || ++backendsTick >= every) {
-                backendsTick = 0
-                refreshBackends()
-            }
+            refreshBackends()
         }
     }
 
@@ -698,9 +676,6 @@ PlasmoidItem {
         case "cheatsheet":
             executable.run("dictee-cheatsheet --toggle")
             break
-        case "meeting-live":
-            executable.run("dictee-meeting-live")
-            break
         case "transcribe-file":
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-transcribe")
             break
@@ -770,17 +745,6 @@ PlasmoidItem {
 
     // Load debug flag — daemon level lancé à la demande via onExpandedChanged/onEffectiveStateChanged
     Component.onCompleted: {
-        // Clear a level daemon left over from a previous plasmashell. It is
-        // only ever stopped from a QML signal, and none of them fires when the
-        // process hosting them dies (crash, restart, logout): onDestruction
-        // cannot run a command through a DataSource that is being destroyed
-        // with it. On a fresh load no signal fires either, since nothing
-        // *changes* — so without this the daemon and its microphone capture
-        // survive indefinitely (observed: 21 h). Skipped in preview mode,
-        // whose state is pinned to "recording" and would never restart it.
-        if (root.effectiveState !== "recording") {
-            executable.run("dictee-plasmoid-level stop")
-        }
         executable.run("bash -c 'grep -q \"^DICTEE_DEBUG=true\" \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null && echo DICTEE_DEBUG_ON'")
         refreshBackends()
     }

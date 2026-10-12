@@ -9,9 +9,9 @@
 # other in `conflicts=()` — pacman refuses to install both.
 
 pkgname=dictee
-pkgver=1.3.7.rc4
+pkgver=1.3.7.rc3
 pkgrel=1
-_tag=1.3.7-rc4
+_tag=1.3.7-rc3
 pkgdesc="Fast push-to-talk voice dictation for Linux (CPU build)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/rcspam/dictee"
@@ -127,7 +127,6 @@ package() {
     install -Dm755 dictee-diarize-llm.py "$pkgdir/usr/bin/dictee-diarize-llm"
     install -Dm755 dictee-test-rules "$pkgdir/usr/bin/dictee-test-rules"
     install -Dm755 dictee-transcribe.py "$pkgdir/usr/bin/dictee-transcribe"
-    install -Dm755 dictee-meeting-live "$pkgdir/usr/bin/dictee-meeting-live"
     install -Dm755 dictee-reset "$pkgdir/usr/bin/dictee-reset"
     install -Dm755 dictee-translate-langs "$pkgdir/usr/bin/dictee-translate-langs"
     install -Dm755 dictee-cheatsheet "$pkgdir/usr/bin/dictee-cheatsheet"

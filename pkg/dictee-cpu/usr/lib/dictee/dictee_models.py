@@ -40,18 +40,11 @@ def _hf_cache_size_mb(cache_dir):
 
 
 def find_parakeet_models():
-    """Find Parakeet TDT ONNX models.
-
-    Detects either fp32 (encoder-model.onnx) or int8 (encoder-model.int8.onnx).
-    Both variants are functionally equivalent for model detection purposes.
-    """
+    """Find Parakeet TDT ONNX models."""
     models = []
     for base, location in [(SYS_DIR, "system"), (DICTEE_DATA, "user")]:
         tdt_dir = os.path.join(base, "tdt")
-        # Check for either fp32 or int8 variant (keep in sync with src/model_tdt.rs)
-        has_fp32 = os.path.isfile(os.path.join(tdt_dir, "encoder-model.onnx"))
-        has_int8 = os.path.isfile(os.path.join(tdt_dir, "encoder-model.int8.onnx"))
-        if has_fp32 or has_int8:
+        if os.path.isfile(os.path.join(tdt_dir, "encoder-model.onnx")):
             size = _dir_size_mb(tdt_dir)
             models.append({
                 "backend": "parakeet",
@@ -64,18 +57,11 @@ def find_parakeet_models():
 
 
 def find_canary_models():
-    """Find Canary ONNX models.
-
-    Detects either fp32 (encoder-model.onnx) or int8 (encoder-model.int8.onnx).
-    Both variants are functionally equivalent for model detection purposes.
-    """
+    """Find Canary ONNX models."""
     models = []
     for base, location in [(SYS_DIR, "system"), (DICTEE_DATA, "user")]:
         canary_dir = os.path.join(base, "canary")
-        # Check for either fp32 or int8 variant (keep in sync with src/model_tdt.rs)
-        has_fp32 = os.path.isfile(os.path.join(canary_dir, "encoder-model.onnx"))
-        has_int8 = os.path.isfile(os.path.join(canary_dir, "encoder-model.int8.onnx"))
-        if has_fp32 or has_int8:
+        if os.path.isfile(os.path.join(canary_dir, "encoder-model.onnx")):
             size = _dir_size_mb(canary_dir)
             models.append({
                 "backend": "canary",
@@ -216,13 +202,9 @@ def whisper_model_cached(model_id):
 
 
 def canary_model_installed():
-    """Check if Canary ONNX model files are present.
-
-    Detects either fp32 (encoder-model.onnx) or int8 (encoder-model.int8.onnx).
-    """
+    """Check if Canary ONNX model files are present."""
     for d in [os.path.join(SYS_DIR, "canary"), os.path.join(DICTEE_DATA, "canary")]:
-        # Check for either fp32 or int8 variant
-        if os.path.isfile(os.path.join(d, "encoder-model.onnx")) or os.path.isfile(os.path.join(d, "encoder-model.int8.onnx")):
+        if os.path.isfile(os.path.join(d, "encoder-model.onnx")):
             return True
     return False
 

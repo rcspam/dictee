@@ -16,7 +16,7 @@ cd "$(dirname "$0")"
 # Packaging deps manifest audit — see build-deb.sh for rationale.
 python3 packaging/audit-deps.py
 
-VERSION="1.3.7~rc4"
+VERSION="1.3.7~rc3"
 PKG_DIR="pkg/dictee"
 DIST_DIR=".dev/dist"
 mkdir -p "$DIST_DIR"
@@ -158,7 +158,7 @@ done
 # Wrappers + scripts (from $PKG_DIR populated by dict_prepare_pkg_dir)
 for f in dictee dictee-setup dictee-tray dictee-ptt dictee-postprocess \
          dictee-diarize-llm dictee-switch-backend dictee-test-rules \
-         dictee-transcribe dictee-meeting-live dictee-cheatsheet dictee-reset \
+         dictee-transcribe dictee-cheatsheet dictee-reset \
          dictee-translate-langs dictee-audio-sources \
          dictee-plasmoid-level dictee-plasmoid-level-daemon \
          dictee-plasmoid-level-fft; do

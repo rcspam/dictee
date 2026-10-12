@@ -117,27 +117,17 @@ jobs:
       run: python3 tests/offscreen-check_anim_speech_update.py
       env:
         QT_QPA_PLATFORM: offscreen
-    # Same ride: both load dictee-setup.py whole. pacman, sg and newgrp are
-    # stand-ins on a private PATH, nothing runs for real.
-    - name: Run install type (Arch) and docker group bridge tests
+    # Same ride: all three load dictee-setup.py whole. pacman, sg, newgrp and
+    # pip are stand-ins or captured, nothing runs for real.
+    - name: Run install type (Arch), docker group bridge and Whisper install tests
       run: |
         python3 tests/offscreen-check_install_type_arch.py
         python3 tests/offscreen-check_docker_group_bridge.py
+        python3 tests/offscreen-check_whisper_install_pin.py
       env:
         QT_QPA_PLATFORM: offscreen
-
-    # The live meeting window and everything that points at it. Offscreen,
-    # no capture is ever started, the engine probe is fed fake binaries, the
-    # state file is redirected, and the French rendering reads the tracked
-    # po/fr.mo: no gettext tooling.
-    - name: Run live meeting window tests
-      run: |
-        python3 tests/test-meeting-slug.py
-        python3 tests/test-ptt-meeting-passthrough.py
-        python3 tests/test-meeting-live-wiring.py
-        python3 tests/offscreen-check_meeting_live_window.py
-        python3 tests/offscreen-check_transcribe_handoff.py
-        python3 tests/offscreen-check_silence_floor.py
+    - name: Run silence-threshold floor tests
+      run: python3 tests/offscreen-check_silence_floor.py
       env:
         QT_QPA_PLATFORM: offscreen
 
@@ -212,8 +202,6 @@ jobs:
     - uses: actions/checkout@v5
     - name: Run dictee-transcribe routing tests
       run: python3 tests/test-transcribe-routing.py -v
-    - name: Run dictee-transcribe command line and handoff helper tests
-      run: python3 tests/test-transcribe-args.py -v
 
   packaging-audit:
     runs-on: ubuntu-latest
