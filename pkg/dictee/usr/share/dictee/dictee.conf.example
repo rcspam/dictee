@@ -34,6 +34,27 @@ DICTEE_VOSK_MODEL=fr
 # Audio source: empty = default microphone, or app:<name> (e.g. app:firefox)
 #DICTEE_AUDIO_SOURCE=
 
+# Mute the playback while recording, so the speakers don't end up in the
+# recording. auto = mute unless the active output is a headset (jack or
+# Bluetooth), true = always mute, false = never. The previous state is
+# restored afterwards either way.
+#DICTEE_MUTE_OUTPUT=auto
+
+# How far down the output goes when it is muted, as a CEILING in percent.
+# Empty (the default) means a plain mute. Set to 10 and the output is capped
+# at 10% while you dictate, and left alone when it is already lower. Meant
+# for headphones or an output the microphone cannot hear: on speakers even a
+# quiet output reaches the microphone and ends up in the transcription.
+# 100 leaves the output alone. Also in dictee-setup, Microphone page.
+#DICTEE_DUCK_LEVEL=0
+
+# Same, on a headset. A headset is never muted (nothing of what it plays
+# reaches the microphone), so this is the only way to lower it: empty leaves
+# it untouched, 30 caps it at 30% while you dictate. Useful to keep hearing a
+# call at a lower volume; 0 mutes it. Also in dictee-setup, next to the one
+# above.
+#DICTEE_DUCK_LEVEL_HEADSET=100
+
 # ============================================================================
 # Translation
 # ============================================================================

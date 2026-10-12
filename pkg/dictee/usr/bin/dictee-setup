@@ -530,6 +530,9 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 continuation_indicator=">>",
                 audio_context=False, audio_context_timeout=30,
                 silence_rms=0.03,
+                mute_output="auto",
+                duck_level=0,
+                duck_headset=0,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False,
                 trpp_states=None, trpp_short_text_max=3,
@@ -583,6 +586,9 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_AUDIO_CONTEXT": "true" if audio_context else "false",
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
         "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
+        "DICTEE_MUTE_OUTPUT": _s(mute_output) if mute_output else "auto",
+        "DICTEE_DUCK_LEVEL": str(duck_level),
+        "DICTEE_DUCK_LEVEL_HEADSET": str(duck_headset),
         "DICTEE_HW_TIER": _s(hw_tier) if hw_tier else "auto",
     }
     # DICTEE_SETUP_DONE is added only when explicitly committing the wizard
@@ -1707,6 +1713,10 @@ class _PipelineDiagram:
 
 VOSK_VENV = os.path.join(DICTEE_DATA_DIR, "vosk-env")
 WHISPER_VENV = os.path.join(DICTEE_DATA_DIR, "whisper-env")
+# What pip installs for Whisper. faster-whisper 1.2.1 only asks for av>=11 and
+# opens every file with av.open(..., metadata_errors=...), an argument PyAV 19
+# removed (2026-09-29): without the pin every transcription raises TypeError.
+WHISPER_PIP_SPEC = "faster-whisper av<19"
 CANARY_VENV = os.path.join(DICTEE_DATA_DIR, "canary-env")  # Legacy, kept for cleanup
 CANARY_MODEL_DIR = os.path.join(MODEL_DIR, "canary")
 CANARY_HF_REPO = "istupakov/canary-1b-v2-onnx"
@@ -1822,9 +1832,12 @@ class VenvInstallThread(QThread):
                     _("Failed to upgrade pip in the venv:") + "\n\n"
                     + (r_pip.stderr.strip() or r_pip.stdout.strip())[-500:])
                 return
-            self.progress.emit(_("Installing {pkg}…").format(pkg=self.pip_package))
+            # pip_package may carry several requirements ("pkg other<N"): the
+            # first one is the name shown, each one is its own pip argument.
+            _reqs = self.pip_package.split()
+            self.progress.emit(_("Installing {pkg}…").format(pkg=_reqs[0]))
             result = subprocess.run(
-                pip_cmd + ["install", "--upgrade", self.pip_package],
+                pip_cmd + ["install", "--upgrade", *_reqs],
                 capture_output=True, text=True, timeout=600,
                 cwd=self.venv_path,
             )
@@ -2339,7 +2352,7 @@ def _detect_docker_sg_needed():
     """User belongs to docker group in /etc/group but not in this process's
     effective groups → group was added in a session ancestor (install.sh
     `usermod`, %post, postinst…) and won't take effect until next login.
-    Use `sg docker` to bridge the gap without forcing a reboot.
+    docker_cmd then bridges the gap (sg, or newgrp -c) without a reboot.
 
     Covers the case where dictee-setup is launched by install.sh right
     after `usermod -aG docker $USER` — without this, the wizard would
@@ -2366,13 +2379,45 @@ def _detect_docker_sg_needed():
 _docker_use_sg = _detect_docker_sg_needed()
 
 
+def _docker_group_bridge(which=None, newgrp_help=None):
+    """Command prefix that runs a command with the docker group.
+
+    ["sg", "docker", "-c"] where sg exists, ["newgrp", "docker", "-c"] when
+    newgrp documents -c (util-linux: Arch dropped sg from shadow 4.20, #35),
+    None when nothing can bridge the gap. Same order as dictee-ptt's
+    input_group_bridge; the lookups are parameters so it is testable.
+    """
+    if which is None:
+        which = shutil.which
+    if newgrp_help is None:
+        def newgrp_help():
+            r = subprocess.run(["newgrp", "--help"], capture_output=True,
+                               text=True, timeout=5)
+            return (r.stdout or "") + (r.stderr or "")
+    if which("sg"):
+        return ["sg", "docker", "-c"]
+    if which("newgrp"):
+        try:
+            if "-c" in newgrp_help():
+                return ["newgrp", "docker", "-c"]
+        except Exception:
+            pass
+    return None
+
+
 def docker_cmd(args, **kwargs):
-    """Run a docker command, using 'sg docker' if group was just added."""
+    """Run a docker command, through the group bridge if the group was just
+    added. Without a bridge the command runs as is: it then fails on the
+    socket like before, and the callers already treat that as no docker."""
+    cmd = args
     if _docker_use_sg:
-        import shlex
-        cmd = ["sg", "docker", "-c", shlex.join(args)]
-    else:
-        cmd = args
+        bridge = _docker_group_bridge()
+        if bridge:
+            import shlex
+            cmd = bridge + [shlex.join(args)]
+        else:
+            _dbg_setup("docker group not effective and neither sg nor "
+                       "newgrp -c available: running docker unbridged")
     return subprocess.run(cmd, **kwargs)
 
 
@@ -2943,8 +2988,17 @@ class _DockerActionThread(QThread):
 
 
 class InstallThread(QThread):
+    # done(ok, message). On success the message is empty after an install, or
+    # carries the "nothing to do" text when the installed version is already
+    # the published one.
     done = Signal(bool, str)
     progress = Signal(str)
+
+    def __init__(self, installed_version="", parent=None):
+        super().__init__(parent)
+        # Empty when animation-speech is absent, or when no package manager
+        # nor the zipapp would say which version is installed.
+        self.installed_version = installed_version
 
     def run(self):
         import json
@@ -2959,6 +3013,18 @@ class InstallThread(QThread):
                     release = json.loads(resp.read().decode())
             except urllib.error.URLError as e:
                 self.done.emit(False, _("Cannot reach GitHub: {err}").format(err=str(e)))
+                return
+
+            # Nothing to download when the published version is the one
+            # already on disk. Only skip on a clear match: an unreadable
+            # local version means we reinstall rather than stay silent.
+            published = (release.get("tag_name") or "").strip().lstrip("vV")
+            if (self.installed_version and published
+                    and DicteeSetupDialog._parse_version(published)
+                    <= DicteeSetupDialog._parse_version(self.installed_version)):
+                self.done.emit(True, _("animation-speech {version} is already "
+                                       "the latest release.").format(
+                                           version=self.installed_version))
                 return
 
             assets = release.get("assets", [])
@@ -6439,13 +6505,19 @@ class DicteeSetupDialog(QDialog):
         # pacman (Arch) — no binary asset published in the release (users
         # build from source via PKGBUILD + makepkg -si). _check_for_updates
         # surfaces the new version + manual install instructions.
+        # Both names: the CUDA PKGBUILD installs dictee-cuda, and pacman -Q
+        # matches names, not provides. It prints one line per installed
+        # name and exits 1 when any is missing, so read stdout regardless.
         if shutil.which("pacman"):
             try:
-                r = subprocess.run(["pacman", "-Q", "dictee"],
+                r = subprocess.run(["pacman", "-Q", "dictee-cuda", "dictee"],
                                    capture_output=True, text=True, timeout=5)
-                if r.returncode == 0 and r.stdout.strip():
-                    return {"kind": "pacman", "label": r.stdout.strip(),
-                            "asset_hint": ""}
+                for line in (r.stdout or "").splitlines():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return {"kind": "pacman", "label": line.strip(),
+                                "asset_hint": "",
+                                "pkg_name": parts[0]}
             except Exception as _e:
                 _dbg_setup(f"silenced: {_e!r}")
         # Source install detected via presence of Cargo.toml alongside
@@ -9663,7 +9735,7 @@ class DicteeSetupDialog(QDialog):
         row.setContentsMargins(24, 0, 0, 0)
         whisper_installed = venv_is_installed(WHISPER_VENV)
         self.btn_install_whisper = QPushButton()
-        self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, "faster-whisper"))
+        self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, WHISPER_PIP_SPEC))
         self._update_venv_button(self.btn_install_whisper, "Whisper", whisper_installed)
 
         self._lbl_wh_model = QLabel(_("Model:"))
@@ -10009,9 +10081,13 @@ class DicteeSetupDialog(QDialog):
             from dictee_models import canary_model_installed
             return canary_model_installed()
         except ImportError:
-            user_path = os.path.join(DICTEE_DATA_DIR, "canary", "encoder-model.onnx")
-            sys_path = os.path.join(CANARY_MODEL_DIR, "encoder-model.onnx")
-            return os.path.isfile(user_path) or os.path.isfile(sys_path)
+            # Mirrors dictee_models.canary_model_installed(): either the fp32
+            # or the int8 encoder counts as installed. Keep the two in sync.
+            for d in (os.path.join(DICTEE_DATA_DIR, "canary"), CANARY_MODEL_DIR):
+                if os.path.isfile(os.path.join(d, "encoder-model.onnx")) \
+                        or os.path.isfile(os.path.join(d, "encoder-model.int8.onnx")):
+                    return True
+            return False
 
     def _update_canary_model_status(self):
         """Update Canary model status button."""
@@ -15491,25 +15567,53 @@ class DicteeSetupDialog(QDialog):
         # and would otherwise block window paint for users who never visit
         # this page in the current session.
 
+    def _duck_levels_to_save(self):
+        """The speaker and headset levels to write, as (speakers, headset).
+
+        The wizard has no Microphone page, so the two sliders do not exist
+        there. Falling back to a default would write it over whatever the
+        user had: 0 means a mute, so a headset set to 30 would come back
+        silenced after a wizard run. Read the conf instead, and only use the
+        defaults when nothing was ever set.
+        """
+        conf = load_config()
+
+        def _level(attr, key, default):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                return widget.value()
+            try:
+                saved = conf.get(key)
+                return int(saved) if saved not in (None, "") else default
+            except ValueError:
+                return default
+
+        return (_level("slider_duck", "DICTEE_DUCK_LEVEL", 0),
+                _level("slider_duck_headset", "DICTEE_DUCK_LEVEL_HEADSET", 100))
+
     def _build_silence_threshold_section(self, lay_mic, conf):
         """Silence threshold slider + calibration playground.
 
         Only called in non-wizard mode (regular setup).
         """
         # Silence threshold slider (anti-hallucination)
-        # Range 10..60 → 0.010..0.060. Default 30 (= 0.030).
+        # Range 3..60 → 0.003..0.060. Default 30 (= 0.030). The floor was
+        # 0.010 until 1.3.7: on an interface with the gain knob low, speech
+        # measures below that (0.013 to 0.018 on the setup of issue #37,
+        # against a calibrated 0.023), so everything was dropped as silence
+        # and a hand-written 0.008 was clamped back on the next setup run.
         try:
             _saved_rms = float(conf.get("DICTEE_SILENCE_RMS", "0.03"))
         except ValueError:
             _saved_rms = 0.03
-        _saved_rms_int = max(10, min(60, int(round(_saved_rms * 1000))))
+        _saved_rms_int = max(3, min(60, int(round(_saved_rms * 1000))))
 
         lay_sil = QHBoxLayout()
         lay_sil.setSpacing(8)
         lbl_sil = QLabel(_("Silence threshold:"))
         lbl_sil.setToolTip(_tt(_("RMS level below which the recording is considered silent and transcription is skipped. Prevents ASR hallucinations (parasitic phrases invented on background noise).")))
         self.slider_silence = QSlider(Qt.Orientation.Horizontal)
-        self.slider_silence.setRange(10, 60)
+        self.slider_silence.setRange(3, 60)
         self.slider_silence.setValue(_saved_rms_int)
         self.slider_silence.setTickInterval(10)
         self.slider_silence.setTickPosition(QSlider.TickPosition.TicksBelow)
@@ -15518,7 +15622,7 @@ class DicteeSetupDialog(QDialog):
         self.lbl_silence_val.setStyleSheet("font-family: monospace;")
 
         def _rms_to_meter_level(rms_int):
-            # rms_int is the slider value (10..60, representing 0.010..0.060).
+            # rms_int is the slider value (3..60, representing 0.003..0.060).
             # Meter level uses: level = (20*log10(rms_norm) + 50) * 2, same
             # formula as AudioLevelMonitor, so the marker lines up with
             # actual VU readings.
@@ -15547,6 +15651,63 @@ class DicteeSetupDialog(QDialog):
         lbl_sil_warn.setStyleSheet(
             "color: #e67e22; font-size: 11px; padding-left: 4px;")
         lay_mic.addWidget(lbl_sil_warn)
+
+        # What happens to the playback while recording, one row per kind of
+        # output, icon first (issue #37). Left is muted, right is untouched.
+        # Speakers default to a mute, the historical behaviour; a headset is
+        # left alone, nothing it plays reaches the microphone.
+        def _duck_row(icon_name, tip, key, default):
+            lay = QHBoxLayout()
+            lay.setSpacing(8)
+            ico = QLabel()
+            # Greyed out at the muted end, the way the theme greys any
+            # disabled icon. No theme ships audio-speakers-muted.
+            _icon = QIcon.fromTheme(icon_name)
+            pm_on = _icon.pixmap(22, 22)
+            pm_off = _icon.pixmap(22, 22, QIcon.Mode.Disabled)
+            ico.setToolTip(_tt(tip))
+            sld = QSlider(Qt.Orientation.Horizontal)
+            sld.setRange(0, 100)
+            sld.setTickInterval(10)
+            sld.setTickPosition(QSlider.TickPosition.TicksBelow)
+            try:
+                _v = int(conf.get(key) if conf.get(key) not in (None, "") else default)
+            except ValueError:
+                _v = default
+            sld.setValue(_v if 0 <= _v <= 100 else default)
+            sld.setToolTip(ico.toolTip())
+            val = QLabel()
+            val.setMinimumWidth(78)
+            val.setStyleSheet("font-family: monospace;")
+
+            def _show(v):
+                ico.setPixmap(pm_off if v == 0 else pm_on)
+                val.setText(_("Muted") if v == 0 else
+                            _("Untouched") if v == 100 else f"{v} %")
+
+            sld.valueChanged.connect(_show)
+            _show(sld.value())
+            lay.addWidget(ico)
+            lay.addWidget(sld, 1)
+            lay.addWidget(val)
+            # Half the width of the silence slider above: the trailing stretch
+            # takes as much room as the slider itself.
+            lay.addStretch(1)
+            lay_mic.addLayout(lay)
+            return sld, val, ico
+
+        lbl_duck = QLabel(_("Playback while recording:"))
+        lbl_duck.setToolTip(_tt(_("Keeps the speakers out of the recording. Slide left to mute, right to leave the sound alone, anywhere between to cap it at that level while you dictate.")))
+        lay_mic.addWidget(lbl_duck)
+        self.slider_duck, self.lbl_duck_val, self.ico_duck = _duck_row(
+            "audio-speakers",
+            _("Speakers: muted by default, since what they play reaches the microphone and ends up in the transcription."),
+            "DICTEE_DUCK_LEVEL", 0)
+        (self.slider_duck_headset, self.lbl_duck_headset_val,
+         self.ico_duck_headset) = _duck_row(
+            "audio-headphones",
+            _("Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."),
+            "DICTEE_DUCK_LEVEL_HEADSET", 100)
 
         # Calibration lab (record → measure RMS → transcribe → compare)
         self._build_calibration_section(lay_mic)
@@ -16865,6 +17026,41 @@ class DicteeSetupDialog(QDialog):
 
     # -- Animation-speech --
 
+    @staticmethod
+    def _animation_speech_version():
+        """Installed animation-speech version, or "" when it cannot be told.
+
+        Each package manager only answers on the distro that did the install,
+        and a tarball install answers to none of them, so fall back to the
+        zipapp, which carries __version__ wherever it came from. Without this
+        the version was read through dpkg-query alone and every non-Debian
+        user was simply told "installed".
+        """
+        for cmd in (["dpkg-query", "-W", "-f", "${Version}", "animation-speech"],
+                    ["rpm", "-q", "--qf", "%{VERSION}", "animation-speech"],
+                    ["pacman", "-Q", "animation-speech"]):
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if r.returncode == 0 and r.stdout.strip():
+                # pacman answers "name version"; deb and rpm carry a packaging
+                # release suffix we do not compare on.
+                return r.stdout.strip().split()[-1].split("-")[0]
+
+        app = shutil.which("animation-speech")
+        if app:
+            try:
+                import zipfile
+                with zipfile.ZipFile(app) as z:
+                    src = z.read("animation_speech/__init__.py").decode()
+                m = re.search(r"__version__\s*=\s*['\"]([^'\"]+)", src)
+                if m:
+                    return m.group(1)
+            except Exception:  # noqa: BLE001 — not a zipapp, unreadable, …
+                pass
+        return ""
+
     def _check_animation_speech(self):
         # _build_visual_section fires this synchronously during build path
         # (~50 ms: shutil.which + dpkg-query subprocess). Defer to first
@@ -16878,27 +17074,25 @@ class DicteeSetupDialog(QDialog):
         parts = []
         has_anim = shutil.which(ANIMATION_SPEECH_BIN)
         if has_anim:
-            try:
-                result = subprocess.run(
-                    ["dpkg-query", "-W", "-f", "${Version}", "animation-speech"],
-                    capture_output=True, text=True,
-                )
-                v = result.stdout.strip() if result.returncode == 0 else ""
-                if v:
-                    parts.append('<span style="color: green;">' +
-                                 _("animation-speech {version} installed").format(version=v) +
-                                 '</span>')
-                else:
-                    parts.append('<span style="color: green;">' +
-                                 _("animation-speech installed") + '</span>')
-            except FileNotFoundError:
+            v = self._animation_speech_version()
+            if v:
+                parts.append('<span style="color: green;">' +
+                             _("animation-speech {version} installed").format(version=v) +
+                             '</span>')
+            else:
                 parts.append('<span style="color: green;">' +
                              _("animation-speech installed") + '</span>')
-            self.btn_install_anim.setVisible(False)
-        else:
+            # Keep the button: hiding it as soon as the binary existed left
+            # everyone stuck on whatever version they first installed, with
+            # no way to pick up a fix from here.
+            self.btn_install_anim.setText(_("Check for animation-speech updates"))
             self.btn_install_anim.setVisible(True)
-            if self.de_type == "gnome":
-                self.btn_install_anim.setEnabled(False)
+            self.btn_install_anim.setEnabled(True)
+        else:
+            self.btn_install_anim.setText(_("Install animation-speech"))
+            self.btn_install_anim.setVisible(True)
+            # Re-enabled here so a failed attempt leaves a usable button.
+            self.btn_install_anim.setEnabled(self.de_type != "gnome")
 
         has_plasmoid = os.path.isdir(
             os.path.expanduser("~/.local/share/plasma/plasmoids/com.github.rcspam.dictee")
@@ -16916,7 +17110,7 @@ class DicteeSetupDialog(QDialog):
         self.btn_install_anim.setText(_("Downloading…"))
         self.progress_anim.setVisible(True)
 
-        self._install_thread = InstallThread()
+        self._install_thread = InstallThread(self._animation_speech_version())
         self._install_thread.progress.connect(lambda text: self.btn_install_anim.setText(text))
         self._install_thread.done.connect(self._on_install_finished)
         self._install_thread.start()
@@ -16926,9 +17120,11 @@ class DicteeSetupDialog(QDialog):
         self.progress_anim.setVisible(False)
         if success:
             self._check_animation_speech()
+            if message:
+                # Nothing was downloaded: already on the published version.
+                QMessageBox.information(self, _("animation-speech"), message)
         else:
-            self.btn_install_anim.setText(_("Install animation-speech"))
-            self.btn_install_anim.setEnabled(True)
+            self._check_animation_speech()
             QMessageBox.critical(self, _("Installation error"), message)
 
     # -- Ollama backend --
@@ -17682,9 +17878,14 @@ class DicteeSetupDialog(QDialog):
         if backend == "canary":
             # Canary uses the transcribe-daemon binary shared with parakeet.
             # It also needs the CUDA providers for reasonable speed.
+            # The user dir may hold either the fp32 or the int8 encoder, so
+            # both names count (cf. dictee_models.canary_model_installed).
+            _user_canary = os.path.join(DICTEE_DATA_DIR, "canary")
             if not os.path.isdir("/usr/share/dictee/canary") \
                     and not os.path.isfile(
-                        os.path.join(DICTEE_DATA_DIR, "canary", "encoder-model.onnx")):
+                        os.path.join(_user_canary, "encoder-model.onnx")) \
+                    and not os.path.isfile(
+                        os.path.join(_user_canary, "encoder-model.int8.onnx")):
                 return False, _(
                     "The Canary model is not installed.\n\n"
                     "Download it from the ASR backend page before enabling Canary.")
@@ -19229,6 +19430,10 @@ class DicteeSetupDialog(QDialog):
         audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
         audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
         silence_rms = (self.slider_silence.value() / 1000.0) if hasattr(self, 'slider_silence') else 0.03
+        # The two levels carry everything now; DICTEE_MUTE_OUTPUT stays in
+        # the conf for anyone who set it by hand, and keeps its meaning.
+        mute_output = (load_config().get("DICTEE_MUTE_OUTPUT") or "auto")
+        duck_level, duck_headset = self._duck_levels_to_save()
         debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
         # Cheatsheet shortcut: persist the combo selection (and the captured
@@ -19282,6 +19487,9 @@ class DicteeSetupDialog(QDialog):
                     audio_context=audio_context,
                     audio_context_timeout=audio_context_timeout,
                     silence_rms=silence_rms,
+                    mute_output=mute_output,
+                    duck_level=duck_level,
+                    duck_headset=duck_headset,
                     notifications=self.chk_notifications.isChecked(),
                     notifications_text=self.chk_notifications_text.isChecked(),
                     command_suffixes=self._command_suffixes,

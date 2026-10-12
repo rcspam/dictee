@@ -249,7 +249,12 @@ def _asr_service_exists(key):
             return False
         if not os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so"):
             return False
-        return os.path.isdir("/usr/share/dictee/canary") or os.path.isfile(os.path.join(data_dir, "canary", "encoder-model.onnx"))
+        # The user dir may hold either the fp32 or the int8 encoder, so both
+        # names count (cf. dictee_models.canary_model_installed).
+        canary_dir = os.path.join(data_dir, "canary")
+        return (os.path.isdir("/usr/share/dictee/canary")
+                or os.path.isfile(os.path.join(canary_dir, "encoder-model.onnx"))
+                or os.path.isfile(os.path.join(canary_dir, "encoder-model.int8.onnx")))
     # Vosk/Whisper: check venv
     venv_map = {"vosk": "vosk-env", "whisper": "whisper-env"}
     venv = venv_map.get(key)

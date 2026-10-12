@@ -160,6 +160,112 @@ stop_animation() {
     fi
 }
 
+# Is the active output a headset? Reads a `pactl list sinks` description on
+# stdin (the sink block of the default sink). PipeWire names the type of the
+# active port: "Headphones" on the built-in jack when the plug is in, and
+# "Headphones" / "Headset" on a Bluetooth headset too, where a Bluetooth
+# speaker says "Speaker" (measured on Bose Sport Earbuds vs HK Onyx Studio 4).
+# device.form_factor backs it up. Anything else, including an audio interface
+# whose port has no usable type, answers "no" and keeps the historical mute.
+_sink_is_headset() {
+    local desc port type_
+    desc=$(cat)
+    port=$(printf '%s\n' "$desc" | grep -m1 "Active Port:" | sed "s/.*Active Port:[[:space:]]*//")
+    if [ -n "$port" ]; then
+        type_=$(printf '%s\n' "$desc" | grep -m1 "^[[:space:]]*${port}:" | sed -n "s/.*type: \([A-Za-z]*\).*/\1/p")
+        case "$type_" in
+            Headphones|Headset) echo "yes"; return ;;
+            Speaker|Line|HDMI|Mic|Analog) echo "no"; return ;;
+        esac
+    fi
+    if printf '%s\n' "$desc" | grep -q 'device.form_factor = "\(headphone\|headset\)"'; then
+        echo "yes"
+    else
+        echo "no"
+    fi
+}
+
+# How far down the output goes while recording, when a mute was decided.
+# DICTEE_DUCK_LEVEL is a CEILING in percent, not a reduction: empty keeps the
+# historical mute, 10 caps the output at 10% and leaves it alone when it is
+# already lower (a user at 19% would otherwise land at 4% with a percentage).
+# Takes the level and the current volume as a 0..1 fraction (wpctl's format,
+# empty when unreadable). Prints "mute", "keep", or the ceiling to apply.
+_duck_target() {
+    local level="$1" current="$2"
+    case "$level" in
+        ""|*[!0-9]*) echo "mute"; return ;;
+    esac
+    [ "$level" -ge 1 ] 2>/dev/null || { echo "mute"; return ; }
+    [ "$level" -le 100 ] 2>/dev/null || { echo "mute"; return ; }
+    [ "$level" -eq 100 ] && { echo "keep"; return ; }
+    # Unreadable volume: cap, it is the safe side (never louder than asked).
+    [ -n "$current" ] || { echo "$level"; return ; }
+    local cur_pct
+    cur_pct=$(awk -v c="$current" 'BEGIN { printf "%d", c * 100 }' 2>/dev/null)
+    [ -n "$cur_pct" ] || { echo "$level"; return ; }
+    if [ "$cur_pct" -le "$level" ]; then
+        echo "keep"
+    else
+        echo "$level"
+    fi
+}
+
+# A percentage as the 0..1 fraction wpctl takes. Printed with a dot whatever
+# the locale (a comma would make wpctl set the volume to 0).
+_pct_to_fraction() {
+    LC_ALL=C awk -v p="$1" 'BEGIN { printf "%.2f", p / 100 }'
+}
+
+# Current output volume as a 0..1 fraction, empty when unreadable. wpctl
+# prints "Volume: 0.19" with a dot whatever the locale, unlike pactl which
+# reports one localized percentage per channel.
+_sink_volume() {
+    wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | awk '/Volume:/ { print $2; exit }'
+}
+
+# Mute the playback while recording from the microphone? DICTEE_MUTE_OUTPUT:
+# auto (default) mutes unless the active output is a headset, true always
+# mutes, false never does. Prints yes or no.
+_should_mute_output() {
+    local setting="$1" is_headset="$2"
+    case "$setting" in
+        true)  echo "yes" ;;
+        false) echo "no" ;;
+        *)     [ "$is_headset" = "yes" ] && echo "no" || echo "yes" ;;
+    esac
+}
+
+# What to do with the output while recording, in one place. Prints "mute",
+# "keep", or the percentage to cap at.
+#
+#   setting      DICTEE_MUTE_OUTPUT (auto, true, false)
+#   is_headset   yes when the active output is a headset
+#   level        DICTEE_DUCK_LEVEL, the ceiling on speakers ("" = mute)
+#   head_level   DICTEE_DUCK_LEVEL_HEADSET, the ceiling on a headset ("" =
+#                leave it alone). A headset has nothing to keep out of the
+#                recording, so it is never muted, only lowered when asked.
+#   current      current volume as a 0..1 fraction
+_output_action() {
+    local setting="$1" is_headset="$2" level="$3" head_level="$4" current="$5"
+    if [ "$is_headset" = "yes" ]; then
+        # Its own level wins wherever it is set, and never mutes.
+        # 0 means the user asked for a mute here too; empty means the level
+        # was never set, and auto then leaves the headset alone.
+        if [ -n "$head_level" ]; then
+            _duck_target "$head_level" "$current"
+            return
+        fi
+        # No headset level: auto leaves it alone, true falls back to the
+        # speaker level (and to a mute when that one is not set either).
+        [ "$(_should_mute_output "$setting" "$is_headset")" = "yes" ] || { echo "keep"; return ; }
+        _duck_target "$level" "$current"
+        return
+    fi
+    [ "$(_should_mute_output "$setting" "$is_headset")" = "yes" ] || { echo "keep"; return ; }
+    _duck_target "$level" "$current"
+}
+
 # Restore audio state (re-mute mic if it was muted, unmute sink)
 restore_audio() {
     if [ -f "$MUT_FILE" ]; then
@@ -175,8 +281,15 @@ restore_audio() {
     # (it was unmuted before); if the user had it muted, leave it muted so we
     # don't clobber their muted-output preference.
     if [ -f "$SINK_MUT_FILE" ]; then
-        local sink_was=""
-        sink_was=$(awk -F"=" '{print $2}' "$SINK_MUT_FILE" 2>/dev/null)
+        local sink_was="" sink_vol=""
+        sink_was=$(awk -F"=" '/^SINK_MUT=/ {print $2}' "$SINK_MUT_FILE" 2>/dev/null)
+        # Ducked instead of muted: put the volume back where it was. Written
+        # by start-recording only when we actually lowered it.
+        sink_vol=$(awk -F"=" '/^SINK_VOL=/ {print $2}' "$SINK_MUT_FILE" 2>/dev/null)
+        if [ -n "$sink_vol" ]; then
+            wpctl set-volume @DEFAULT_AUDIO_SINK@ "$sink_vol" 2>/dev/null || true
+            _dbg "restore: output volume back to $sink_vol"
+        fi
         if [ "$sink_was" = "0" ]; then
             pactl set-sink-mute @DEFAULT_SINK@ 0
         fi
@@ -217,21 +330,49 @@ fi
 
 # dotool needs to write to /dev/uinput, which is restricted to the `input`
 # group. dictee is invoked from many parents whose group-set may differ:
-#  - dictee-ptt.service       → has `sg input -c …` in ExecStart, OK
+#  - dictee-ptt.service       → dictee-ptt bridges the group itself at start
 #  - tray clic / plasmoid clic → inherit plasmashell's groups, which were
 #    fixed at graphical login: if the user was added to `input` AFTER the
 #    login (postinst, %post, .install hook), plasmashell never picked the
 #    new group up → dotool here fails with "could not open device file".
 #
-# Detect the situation once at startup. When the input group is missing
-# from the running process's group-set, all dotool calls go through
-# `sg input -c`, which re-runs initgroups() against /etc/group and gets
-# the missing group without needing a logout.
-if id -nG 2>/dev/null | grep -qw input; then
-    _DOTOOL_NEEDS_SG=0
-else
-    _DOTOOL_NEEDS_SG=1
+# sg and newgrp bridge that gap: they read /etc/group and run a command with
+# the new group, no logout needed. Until 1.3.6 this was `sg input -c`,
+# hard-coded; Arch dropped /usr/bin/sg from shadow 4.20.0.arch1-1 (#35), and
+# ships util-linux's newgrp, which takes `-c <command>` (shadow's newgrp, on
+# Debian/Ubuntu/Fedora, does not, but those still have sg). Decide once at
+# startup. Prints the wrapper prefix, empty when the group is already there,
+# "none" when nothing can bridge it (the caller warns: logout needed).
+_dotool_group_bridge() {
+    if id -nG 2>/dev/null | grep -qw input; then
+        echo ""
+    elif command -v sg >/dev/null 2>&1; then
+        echo "sg input -c"
+    elif command -v newgrp >/dev/null 2>&1 && newgrp --help 2>&1 | grep -q -- '-c'; then
+        echo "newgrp input -c"
+    else
+        echo "none"
+    fi
+}
+_DOTOOL_WRAP=$(_dotool_group_bridge)
+if [[ "$_DOTOOL_WRAP" == "none" ]]; then
+    _DOTOOL_WRAP=""
+    _dbg "dotool: input group missing and neither sg nor newgrp -c available; typing will fail until the next login"
+    notify_dictee_async 0 dialog-warning-symbolic "Push-to-talk : déconnectez-vous et reconnectez-vous (groupe input)" 2>/dev/null || true
 fi
+
+# Run dotool with stdin from the caller, through the group bridge when one is
+# needed. Its stderr goes to the debug log (when DICTEE_DEBUG=true) instead of
+# /dev/null: a dotool that cannot open uinput used to fail without a trace.
+_run_dotool() {
+    local _err="${_DBG_LOG:-/dev/null}"
+    [ "$DICTEE_DEBUG" = "true" ] || _err=/dev/null
+    if [[ -n "$_DOTOOL_WRAP" ]]; then
+        $_DOTOOL_WRAP 'dotool' 2>>"$_err" || true
+    else
+        dotool 2>>"$_err" || true
+    fi
+}
 
 # Safe dotool wrapper for trap ERR.
 # DICTEE_DOTOOL_SETTLE (seconds, default 0 = off) delays the keystrokes after
@@ -243,11 +384,7 @@ fi
 # delays only the keystrokes, not the device creation.
 safe_dotool() {
     local settle="${DICTEE_DOTOOL_SETTLE:-0}"
-    if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
-        { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | sg input -c 'dotool' 2>/dev/null || true
-    else
-        { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | dotool 2>/dev/null || true
-    fi
+    { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | _run_dotool
 }
 
 # Release all keyboard modifiers — called from trap and before ctrl+* commands
@@ -256,11 +393,7 @@ safe_dotool() {
 # the bare ctrl/shift/alt/super are chord-modifier prefixes only and are rejected as
 # keys ("impossible key for layout"), which silently turned this release into a no-op.
 release_modifiers() {
-    if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
-        printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | sg input -c 'dotool' 2>/dev/null || true
-    else
-        printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | dotool 2>/dev/null || true
-    fi
+    printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | _run_dotool
 }
 
 # (safe_dotool_key_ctrl was removed: its only caller was the non-Latin
@@ -1897,15 +2030,53 @@ else
             pactl set-source-mute "$_PA_SOURCE" 0
             echo "MUT=1" >"$MUT_FILE"
         fi
-        # Save the output sink's prior mute state; only mute it when it was
-        # actually unmuted, so restore_audio can put it back exactly.
-        # Unconditionally muting then unmuting it clobbered a muted-output
+        # Mute the output so the speakers don't end up in the recording.
+        # Skipped on a headset, where there is nothing to keep out and the
+        # music stopped for nothing (#37): DICTEE_MUTE_OUTPUT=true forces the
+        # mute anyway, false disables it. Save the sink's prior state first and
+        # only mute when it was unmuted, so restore_audio puts it back exactly.
+        # Unconditionally muting then unmuting clobbered a muted-output
         # preference (the output came back unmuted after every dictation).
-        if pactl get-sink-mute @DEFAULT_SINK@ | grep -q -i -E 'oui|yes'; then
-            echo "SINK_MUT=1" >"$SINK_MUT_FILE"
-        else
-            echo "SINK_MUT=0" >"$SINK_MUT_FILE"
-            pactl set-sink-mute @DEFAULT_SINK@ 1
+        _mute_setting="${DICTEE_MUTE_OUTPUT:-auto}"
+        _is_headset="no"
+        # The headset answer is needed for its own duck level too, not just
+        # for the auto mute decision.
+        if [ "$_mute_setting" != "false" ] || [ -n "${DICTEE_DUCK_LEVEL_HEADSET:-}" ]; then
+            # pactl fails while the sound server is busy (a Bluetooth sink
+            # reconnecting, say). Without the guard, the failed assignment
+            # fires trap ERR and cleanup_on_error cancels the dictation
+            # before it ever starts. An empty sink name is fine here: the
+            # headset test below just answers no.
+            _default_sink=$(pactl get-default-sink 2>/dev/null) || _default_sink=""
+            _is_headset=$(LC_ALL=C pactl list sinks 2>/dev/null \
+                | awk -v s="$_default_sink" '$0 ~ "^Sink #" {p=0} $0 ~ "Name: " s "$" {p=1} p' \
+                | _sink_is_headset)
+        fi
+        _duck_cur=$(_sink_volume)
+        _action=$(_output_action "$_mute_setting" "$_is_headset" \
+                                 "${DICTEE_DUCK_LEVEL:-}" "${DICTEE_DUCK_LEVEL_HEADSET:-}" \
+                                 "$_duck_cur")
+        _dbg "output: setting=$_mute_setting headset=$_is_headset level=${DICTEE_DUCK_LEVEL:-<mute>} head_level=${DICTEE_DUCK_LEVEL_HEADSET:-<none>} current=${_duck_cur:-?} action=$_action"
+        if [ "$_action" != "keep" ]; then
+            if pactl get-sink-mute @DEFAULT_SINK@ | grep -q -i -E 'oui|yes'; then
+                # Already muted by the user: leave it, and remember so
+                # restore_audio does not unmute what it did not mute.
+                echo "SINK_MUT=1" >"$SINK_MUT_FILE"
+            else
+                echo "SINK_MUT=0" >"$SINK_MUT_FILE"
+                if [ "$_action" = "mute" ]; then
+                    # Guarded like every sound-server call on this path: a
+                    # failing pactl would fire trap ERR and cancel the
+                    # dictation. Not muting is a far smaller problem.
+                    pactl set-sink-mute @DEFAULT_SINK@ 1 || true
+                else
+                    # Remember the exact volume so restore_audio puts it back;
+                    # a crash here only leaves the sound low.
+                    [ -n "$_duck_cur" ] && echo "SINK_VOL=$_duck_cur" >>"$SINK_MUT_FILE"
+                    wpctl set-volume @DEFAULT_AUDIO_SINK@ "$(_pct_to_fraction "$_action")" 2>/dev/null || \
+                        pactl set-sink-mute @DEFAULT_SINK@ 1 || true
+                fi
+            fi
         fi
     fi
 
