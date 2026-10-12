@@ -23,7 +23,7 @@ if ! command -v "$RUNTIME" >/dev/null 2>&1; then
 fi
 
 if ! "$RUNTIME" image exists "$IMAGE" 2>/dev/null; then
-    echo "=== Building $IMAGE (one-off, Debian 12 + rustup stable) ==="
+    echo "=== Building $IMAGE (one-off, Debian 12 + pinned Rust toolchain) ==="
     "$RUNTIME" build -t "$IMAGE" -f packaging/Containerfile.glibc236 packaging
 fi
 
