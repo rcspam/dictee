@@ -195,6 +195,8 @@ jobs:
       run: bash tests/test-install-arch-gnome.sh
     - name: Run dotoold not-started tests (all installers)
       run: bash tests/test-dotoold-not-started.sh
+    - name: Run login-screen session tests (all installers)
+      run: bash tests/test-postinst-skips-greeter.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest

@@ -1,6 +1,15 @@
 #!/bin/bash
 set -e
 
+# UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
+# holds a logind session too, under its own system account, with
+# Class=greeter: it must not join input/docker nor get dictee's services.
+_user_session_uids() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid _; do
+        [ "$(loginctl show-session "$sid" -p Class --value 2>/dev/null)" = "user" ] && echo "$uid"
+    done | sort -u
+}
+
 MODEL_DIR="/usr/share/dictee"
 TDT_DIR="$MODEL_DIR/tdt"
 DIAR_DIR="$MODEL_DIR/sortformer"
@@ -126,7 +135,7 @@ echo "Traductions installées"
 echo ""
 echo "=== Groupes utilisateur ==="
 GROUPS_CHANGED=false
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     [ "$user" = "root" ] && continue
     if ! id -nG "$user" | grep -qw input; then
@@ -165,7 +174,7 @@ if [ "$GROUPS_CHANGED" = "true" ]; then
     echo ""
     echo "✓ Groupe(s) ajouté(s) — actifs tout de suite pour dictee ; les autres applications les verront à la prochaine connexion."
     # Notification desktop pour les installations graphiques
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         sudo -u "$user" DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
@@ -178,7 +187,7 @@ fi
 # Enable GNOME AppIndicator extension for tray icon
 echo ""
 echo "=== Extension GNOME AppIndicator ==="
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     [ "$user" = "root" ] && continue
     [ -d "/run/user/$uid" ] || continue
@@ -195,7 +204,7 @@ done
 # and push-to-talk simply never worked after installing the package.
 echo ""
 echo "=== Anciennes unités systemd utilisateur ==="
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     [ "$user" = "root" ] && continue
     home=$(getent passwd "$user" | cut -d: -f6)
@@ -218,7 +227,7 @@ done
 echo ""
 echo "=== Plasmoid KDE Plasma ==="
 if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         # `-u` on a first install prints "Error: Plugin … is not installed." on
@@ -258,7 +267,7 @@ echo "Règles udev rechargées (dotool/uinput)"
 # Recharger les services systemd pour les utilisateurs connectés
 echo ""
 echo "=== Rechargement des services ==="
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     if [ -d "/run/user/$uid" ]; then
         echo "→ Rechargement pour $user (uid $uid)"

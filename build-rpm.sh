@@ -335,6 +335,14 @@ Features:
 
 %post
 ldconfig 2>/dev/null || true
+# UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
+# holds a logind session too, under its own system account, with
+# Class=greeter: it must not join input/docker nor get dictee's services.
+_user_session_uids() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid _; do
+        [ "\$(loginctl show-session "\$sid" -p Class --value 2>/dev/null)" = "user" ] && echo "\$uid"
+    done | sort -u
+}
 # Fix udev rule if old version with 0620 (RPM preserves config files)
 UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
 if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
@@ -356,7 +364,7 @@ udevadm trigger /dev/uinput 2>/dev/null || true
 # package never uses. Measured on an Arch VM: a July tarball left a unit
 # calling /usr/local/bin/sg, dictee-ptt died 27 times with 203/EXEC, and
 # push-to-talk never worked after installing the package.
-for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+for uid in \$(_user_session_uids); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
     home=\$(getent passwd "\$user" | cut -d: -f6)
@@ -375,7 +383,7 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
 done
 
 # Per-user setup for all logged-in users
-for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+for uid in \$(_user_session_uids); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
     [ -d "/run/user/\$uid" ] || continue
@@ -472,6 +480,14 @@ fi
 
 %postun
 ldconfig 2>/dev/null || true
+# UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
+# holds a logind session too, under its own system account, with
+# Class=greeter: it must not join input/docker nor get dictee's services.
+_user_session_uids() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid _; do
+        [ "\$(loginctl show-session "\$sid" -p Class --value 2>/dev/null)" = "user" ] && echo "\$uid"
+    done | sort -u
+}
 if [ "\$1" -eq 0 ]; then
     # Full uninstall (not upgrade)
     rm -rf /usr/share/dictee/postprocess-env
@@ -484,7 +500,7 @@ if [ "\$1" -eq 0 ]; then
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
     # Stop and disable user services
-    for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+    for uid in \$(_user_session_uids); do
         user=\$(id -nu "\$uid" 2>/dev/null) || continue
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
@@ -593,6 +609,14 @@ Features:
 /usr/share/doc/dictee/*
 
 %post
+# UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
+# holds a logind session too, under its own system account, with
+# Class=greeter: it must not join input/docker nor get dictee's services.
+_user_session_uids() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid _; do
+        [ "\$(loginctl show-session "\$sid" -p Class --value 2>/dev/null)" = "user" ] && echo "\$uid"
+    done | sort -u
+}
 # Fix udev rule if old version with 0620 (RPM preserves config files)
 UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
 if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
@@ -613,7 +637,7 @@ udevadm trigger /dev/uinput 2>/dev/null || true
 # package never uses. Measured on an Arch VM: a July tarball left a unit
 # calling /usr/local/bin/sg, dictee-ptt died 27 times with 203/EXEC, and
 # push-to-talk never worked after installing the package.
-for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+for uid in \$(_user_session_uids); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
     home=\$(getent passwd "\$user" | cut -d: -f6)
@@ -632,7 +656,7 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
 done
 
 # Per-user setup for all logged-in users
-for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+for uid in \$(_user_session_uids); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
     [ -d "/run/user/\$uid" ] || continue
@@ -722,11 +746,19 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 
 %postun
+# UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
+# holds a logind session too, under its own system account, with
+# Class=greeter: it must not join input/docker nor get dictee's services.
+_user_session_uids() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid _; do
+        [ "\$(loginctl show-session "\$sid" -p Class --value 2>/dev/null)" = "user" ] && echo "\$uid"
+    done | sort -u
+}
 if [ "\$1" -eq 0 ]; then
     rm -rf /usr/share/dictee/postprocess-env
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
-    for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+    for uid in \$(_user_session_uids); do
         user=\$(id -nu "\$uid" 2>/dev/null) || continue
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
