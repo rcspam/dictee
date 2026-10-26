@@ -1,6 +1,45 @@
 #!/bin/bash
 set -e
 
+# UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
+# holds a logind session too, under its own system account, with
+# Class=greeter: it must not join input/docker nor get dictee's services.
+_user_session_uids() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid _; do
+        [ "$(loginctl show-session "$sid" -p Class --value 2>/dev/null)" = "user" ] && echo "$uid"
+    done | sort -u
+}
+
+# Display managers' accounts. Before 1.3.7 the packages' post-install took the
+# login screen's session for a person: its account joined input and docker
+# (docker is root-equivalent) and got dictee's user services enabled in its
+# home. Undo that on every install and upgrade.
+_clean_greeter_accounts() {
+    local acct grp home uid n
+    for acct in gdm Debian-gdm sddm plasmalogin lightdm greeter; do
+        getent passwd "$acct" >/dev/null 2>&1 || continue
+        for grp in input docker; do
+            if id -nG "$acct" 2>/dev/null | grep -qw "$grp"; then
+                gpasswd -d "$acct" "$grp" >/dev/null 2>&1 \
+                    && echo "✓ login screen account $acct removed from group '$grp'" || true
+            fi
+        done
+        home=$(getent passwd "$acct" | cut -d: -f6)
+        [ -n "$home" ] && [ -d "$home/.config/systemd/user" ] || continue
+        uid=$(id -u "$acct")
+        if [ -d "/run/user/$uid" ]; then
+            sudo -u "$acct" XDG_RUNTIME_DIR="/run/user/$uid" \
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+                systemctl --user stop dictee dictee-ptt dictee-tray dotoold \
+                dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        fi
+        n=$(find "$home/.config/systemd/user" ! -type d \
+            '(' -name 'dictee*.service' -o -name dotoold.service ')' \
+            -print -delete 2>/dev/null | wc -l) || n=0
+        [ "$n" -gt 0 ] && echo "✓ $n dictee unit(s) removed for login screen account $acct" || true
+    done
+}
+
 MODEL_DIR="/usr/share/dictee"
 TDT_DIR="$MODEL_DIR/tdt"
 DIAR_DIR="$MODEL_DIR/sortformer"
@@ -125,8 +164,9 @@ echo "Traductions installées"
 # Ajouter les utilisateurs connectés aux groupes nécessaires
 echo ""
 echo "=== Groupes utilisateur ==="
+_clean_greeter_accounts
 GROUPS_CHANGED=false
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     [ "$user" = "root" ] && continue
     if ! id -nG "$user" | grep -qw input; then
@@ -165,7 +205,7 @@ if [ "$GROUPS_CHANGED" = "true" ]; then
     echo ""
     echo "✓ Groupe(s) ajouté(s) — actifs tout de suite pour dictee ; les autres applications les verront à la prochaine connexion."
     # Notification desktop pour les installations graphiques
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         sudo -u "$user" DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
@@ -178,7 +218,7 @@ fi
 # Enable GNOME AppIndicator extension for tray icon
 echo ""
 echo "=== Extension GNOME AppIndicator ==="
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     [ "$user" = "root" ] && continue
     [ -d "/run/user/$uid" ] || continue
@@ -195,7 +235,7 @@ done
 # and push-to-talk simply never worked after installing the package.
 echo ""
 echo "=== Anciennes unités systemd utilisateur ==="
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     [ "$user" = "root" ] && continue
     home=$(getent passwd "$user" | cut -d: -f6)
@@ -218,7 +258,7 @@ done
 echo ""
 echo "=== Plasmoid KDE Plasma ==="
 if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         # `-u` on a first install prints "Error: Plugin … is not installed." on
@@ -258,7 +298,7 @@ echo "Règles udev rechargées (dotool/uinput)"
 # Recharger les services systemd pour les utilisateurs connectés
 echo ""
 echo "=== Rechargement des services ==="
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     if [ -d "/run/user/$uid" ]; then
         echo "→ Rechargement pour $user (uid $uid)"
