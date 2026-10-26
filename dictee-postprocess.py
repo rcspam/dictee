@@ -126,6 +126,16 @@ _RULE_EMPTY_RE = re.compile(
     r"^\s*\[([a-z]{2}|\*)\]\s*/(.+)//([igm]*)\s*$"
 )
 
+# STEP 4 of every rules.conf.default before 1.3.7 collapsed any doubled word,
+# killing legitimate ones ("nous nous sommes", "très très bien"). The default
+# now collapses a 3+ stutter only, but a user's rules.conf is a copy of the
+# default of its day and is the only rules file read once it exists, so an
+# upgrade never brought the fix. That exact line is read as the new one, in
+# memory only: the user's file is never rewritten, and any line they edited
+# is theirs and applies as written.
+_OLD_DEDUP_RULE = r"[*] /\b(\w+)\s+\1\b/\1/ig"
+_NEW_DEDUP_RULE = r"[*] /\b(\w+)(?:\s+\1\b){2,}/\1/ig"
+
 
 def _parse_rules(path):
     """Parses a rules file, returns [(pattern_compiled, replacement)]."""
@@ -137,6 +147,8 @@ def _parse_rules(path):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
+            if line == _OLD_DEDUP_RULE:
+                line = _NEW_DEDUP_RULE
             # Essayer d'abord le remplacement vide
             m = _RULE_EMPTY_RE.match(line)
             if m:

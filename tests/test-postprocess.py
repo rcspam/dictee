@@ -678,6 +678,52 @@ class TestDeduplication(unittest.TestCase):
         self.assertIn("je", result.lower())
 
 
+# The STEP 4 line every rules.conf.default carried before 1.3.7.
+OLD_DEDUP_LINE = r"[*] /\b(\w+)\s+\1\b/\1/ig"
+
+
+class TestUpgradedUserRules(unittest.TestCase):
+    """A rules.conf copied from a pre-1.3.7 default keeps the old STEP 4
+    line, and it is the only rules file read once it exists: upgraded users
+    lost every legitimate doubling ("nous nous", "très très"), seen on the
+    kubuntu VM on 2026-10-26. That exact line now behaves like the new
+    default; any other dedup rule is the user's own and stays as written."""
+
+    def _run_with_user_rules(self, rules_text, text):
+        with tempfile.TemporaryDirectory() as cfg:
+            os.makedirs(os.path.join(cfg, "dictee"))
+            path = os.path.join(cfg, "dictee", "rules.conf")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(rules_text)
+            result = run_postprocess(text, env_extra={"XDG_CONFIG_HOME": cfg})
+            with open(path, encoding="utf-8") as f:
+                after = f.read()
+        return result, after
+
+    def test_old_default_line_keeps_a_doubling(self):
+        result, _ = self._run_with_user_rules(
+            OLD_DEDUP_LINE + "\n", "Nous nous sommes vus hier, très très bien.")
+        self.assertIn("nous nous", result.lower())
+        self.assertIn("très très", result.lower())
+
+    def test_old_default_line_still_collapses_a_stutter(self):
+        result, _ = self._run_with_user_rules(
+            OLD_DEDUP_LINE + "\n", "Je je je vais au magasin.")
+        self.assertNotIn("je je", result.lower())
+
+    def test_user_file_is_not_rewritten(self):
+        rules = "# my rules\n" + OLD_DEDUP_LINE + "\n"
+        _, after = self._run_with_user_rules(rules, "Nous nous sommes vus.")
+        self.assertEqual(after, rules)
+
+    def test_edited_dedup_rule_is_left_alone(self):
+        # Same regex under a language tag: the user wrote it, so it applies.
+        result, _ = self._run_with_user_rules(
+            OLD_DEDUP_LINE.replace("[*]", "[fr]") + "\n",
+            "Nous nous sommes vus hier.")
+        self.assertNotIn("nous nous", result.lower())
+
+
 class TestPunctuationCleanup(unittest.TestCase):
     """Étape 5 — Nettoyage ponctuation."""
 
