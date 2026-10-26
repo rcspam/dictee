@@ -1,6 +1,15 @@
 #!/bin/bash
 set -e
 
+# UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
+# holds a logind session too, under its own system account, with
+# Class=greeter: it must not join input/docker nor get dictee's services.
+_user_session_uids() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid _; do
+        [ "$(loginctl show-session "$sid" -p Class --value 2>/dev/null)" = "user" ] && echo "$uid"
+    done | sort -u
+}
+
 MODEL_DIR="/usr/share/dictee"
 TDT_DIR="$MODEL_DIR/tdt"
 NEMOTRON3_DIAR_DIR="$MODEL_DIR/nemotron3-diar"
@@ -112,7 +121,7 @@ echo "Translations installed"
 echo ""
 echo "=== User groups ==="
 GROUPS_CHANGED=false
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     [ "$user" = "root" ] && continue
     if ! id -nG "$user" | grep -qw input; then
@@ -151,7 +160,7 @@ if [ "$GROUPS_CHANGED" = "true" ]; then
     echo ""
     echo "✓ Group(s) added — active right away for dictee; other applications see them at the next login."
     # Notification desktop pour les installations graphiques
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         sudo -u "$user" DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
@@ -164,7 +173,7 @@ fi
 # Enable GNOME AppIndicator extension for tray icon
 echo ""
 echo "=== GNOME AppIndicator extension ==="
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     [ "$user" = "root" ] && continue
     [ -d "/run/user/$uid" ] || continue
@@ -177,7 +186,7 @@ done
 echo ""
 echo "=== KDE Plasma plasmoid ==="
 if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         sudo -u "$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
@@ -214,7 +223,7 @@ echo "udev rules reloaded (dotool/uinput)"
 # Reload systemd services for logged-in users
 echo ""
 echo "=== Service reload ==="
-for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+for uid in $(_user_session_uids); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     if [ -d "/run/user/$uid" ]; then
         echo "→ Reloading for $user (uid $uid)"

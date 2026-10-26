@@ -1,9 +1,18 @@
 #!/bin/bash
 set -e
 
+# UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
+# holds a logind session too, under its own system account, with
+# Class=greeter: it must not join input/docker nor get dictee's services.
+_user_session_uids() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid _; do
+        [ "$(loginctl show-session "$sid" -p Class --value 2>/dev/null)" = "user" ] && echo "$uid"
+    done | sort -u
+}
+
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     # Stop and disable all user services
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         [ -d "/run/user/$uid" ] || continue

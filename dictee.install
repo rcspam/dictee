@@ -1,3 +1,12 @@
+# UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
+# holds a logind session too, under its own system account, with
+# Class=greeter: it must not join input/docker nor get dictee's services.
+_user_session_uids() {
+    loginctl list-sessions --no-legend 2>/dev/null | while read -r sid uid _; do
+        [ "$(loginctl show-session "$sid" -p Class --value 2>/dev/null)" = "user" ] && echo "$uid"
+    done | sort -u
+}
+
 _install_uinput_drop_in() {
     # The AUR `dotool` package ships /usr/lib/udev/rules.d/80-dotool.rules
     # with MODE="0620" (write-only for the input group). python-evdev opens
@@ -28,7 +37,7 @@ _enable_gnome_appindicator() {
     # only shows through the AppIndicator extension (install.sh installs it
     # on GNOME). Enabling is per user and needs the session bus; a desktop
     # without the extension just ignores this.
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         [ -d "/run/user/$uid" ] || continue
@@ -43,7 +52,7 @@ _switch_off_dotoold() {
     # through the one-shot dotool. Earlier versions enabled it anyway, and
     # started right after the install it could not open /dev/uinput before the
     # next login and failed in a loop. Switch off the one they left enabled.
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         [ -d "/run/user/$uid" ] || continue
@@ -66,7 +75,7 @@ _setup_user_groups() {
     # and %post .rpm so an Arch user gets the same default behaviour
     # as Debian/Ubuntu/Fedora installs — without it, PTT shortcut and
     # LibreTranslate stay broken until the user runs usermod manually.
-    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    for uid in $(_user_session_uids); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         if ! id -nG "$user" | grep -qw input; then
