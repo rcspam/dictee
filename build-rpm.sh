@@ -335,6 +335,35 @@ Features:
 
 %post
 ldconfig 2>/dev/null || true
+# Display managers' accounts. Before 1.3.7 the packages' post-install took the
+# login screen's session for a person: its account joined input and docker
+# (docker is root-equivalent) and got dictee's user services enabled in its
+# home. Undo that on every install and upgrade.
+_clean_greeter_accounts() {
+    local acct grp home uid n
+    for acct in gdm Debian-gdm sddm plasmalogin lightdm greeter; do
+        getent passwd "\$acct" >/dev/null 2>&1 || continue
+        for grp in input docker; do
+            if id -nG "\$acct" 2>/dev/null | grep -qw "\$grp"; then
+                gpasswd -d "\$acct" "\$grp" >/dev/null 2>&1 \\
+                    && echo "✓ login screen account \$acct removed from group '\$grp'" || true
+            fi
+        done
+        home=\$(getent passwd "\$acct" | cut -d: -f6)
+        [ -n "\$home" ] && [ -d "\$home/.config/systemd/user" ] || continue
+        uid=\$(id -u "\$acct")
+        if [ -d "/run/user/\$uid" ]; then
+            sudo -u "\$acct" XDG_RUNTIME_DIR="/run/user/\$uid" \\
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \\
+                systemctl --user stop dictee dictee-ptt dictee-tray dotoold \\
+                dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        fi
+        n=\$(find "\$home/.config/systemd/user" ! -type d \\
+            '(' -name 'dictee*.service' -o -name dotoold.service ')' \\
+            -print -delete 2>/dev/null | wc -l) || n=0
+        [ "\$n" -gt 0 ] && echo "✓ \$n dictee unit(s) removed for login screen account \$acct" || true
+    done
+}
 # UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
 # holds a logind session too, under its own system account, with
 # Class=greeter: it must not join input/docker nor get dictee's services.
@@ -381,6 +410,8 @@ for uid in \$(_user_session_uids); do
             systemctl --user daemon-reload 2>/dev/null || true
     fi
 done
+
+_clean_greeter_accounts
 
 # Per-user setup for all logged-in users
 for uid in \$(_user_session_uids); do
@@ -609,6 +640,35 @@ Features:
 /usr/share/doc/dictee/*
 
 %post
+# Display managers' accounts. Before 1.3.7 the packages' post-install took the
+# login screen's session for a person: its account joined input and docker
+# (docker is root-equivalent) and got dictee's user services enabled in its
+# home. Undo that on every install and upgrade.
+_clean_greeter_accounts() {
+    local acct grp home uid n
+    for acct in gdm Debian-gdm sddm plasmalogin lightdm greeter; do
+        getent passwd "\$acct" >/dev/null 2>&1 || continue
+        for grp in input docker; do
+            if id -nG "\$acct" 2>/dev/null | grep -qw "\$grp"; then
+                gpasswd -d "\$acct" "\$grp" >/dev/null 2>&1 \\
+                    && echo "✓ login screen account \$acct removed from group '\$grp'" || true
+            fi
+        done
+        home=\$(getent passwd "\$acct" | cut -d: -f6)
+        [ -n "\$home" ] && [ -d "\$home/.config/systemd/user" ] || continue
+        uid=\$(id -u "\$acct")
+        if [ -d "/run/user/\$uid" ]; then
+            sudo -u "\$acct" XDG_RUNTIME_DIR="/run/user/\$uid" \\
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \\
+                systemctl --user stop dictee dictee-ptt dictee-tray dotoold \\
+                dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        fi
+        n=\$(find "\$home/.config/systemd/user" ! -type d \\
+            '(' -name 'dictee*.service' -o -name dotoold.service ')' \\
+            -print -delete 2>/dev/null | wc -l) || n=0
+        [ "\$n" -gt 0 ] && echo "✓ \$n dictee unit(s) removed for login screen account \$acct" || true
+    done
+}
 # UIDs of the people logged in. The login screen (sddm, gdm, plasmalogin)
 # holds a logind session too, under its own system account, with
 # Class=greeter: it must not join input/docker nor get dictee's services.
@@ -654,6 +714,8 @@ for uid in \$(_user_session_uids); do
             systemctl --user daemon-reload 2>/dev/null || true
     fi
 done
+
+_clean_greeter_accounts
 
 # Per-user setup for all logged-in users
 for uid in \$(_user_session_uids); do

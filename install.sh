@@ -815,6 +815,36 @@ mode_online() {
 # TARBALL MODE — installs from files in the current directory.
 # =============================================================================
 
+# Display managers' accounts. Before 1.3.7 the packages' post-install took the
+# login screen's session for a person: its account joined input and docker
+# (docker is root-equivalent) and got dictee's user services enabled in its
+# home. Undo that on every install and upgrade.
+_clean_greeter_accounts() {
+    local acct grp home uid n
+    for acct in gdm Debian-gdm sddm plasmalogin lightdm greeter; do
+        getent passwd "$acct" >/dev/null 2>&1 || continue
+        for grp in input docker; do
+            if id -nG "$acct" 2>/dev/null | grep -qw "$grp"; then
+                gpasswd -d "$acct" "$grp" >/dev/null 2>&1 \
+                    && echo "✓ login screen account $acct removed from group '$grp'" || true
+            fi
+        done
+        home=$(getent passwd "$acct" | cut -d: -f6)
+        [ -n "$home" ] && [ -d "$home/.config/systemd/user" ] || continue
+        uid=$(id -u "$acct")
+        if [ -d "/run/user/$uid" ]; then
+            sudo -u "$acct" XDG_RUNTIME_DIR="/run/user/$uid" \
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+                systemctl --user stop dictee dictee-ptt dictee-tray dotoold \
+                dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        fi
+        n=$(find "$home/.config/systemd/user" ! -type d \
+            '(' -name 'dictee*.service' -o -name dotoold.service ')' \
+            -print -delete 2>/dev/null | wc -l) || n=0
+        [ "$n" -gt 0 ] && echo "✓ $n dictee unit(s) removed for login screen account $acct" || true
+    done
+}
+
 mode_tarball() {
     local PREFIX="/usr/local"
     local MODEL_DIR="/usr/share/dictee"
@@ -956,6 +986,8 @@ EOF
             "$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null || true
         fi
     fi
+
+    _clean_greeter_accounts
 
     # --- input group (dotool needs /dev/uinput) ---
     # No reboot needed: dictee-ptt and dictee bridge the new group themselves
