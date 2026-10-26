@@ -384,7 +384,8 @@ _clean_greeter_accounts() {
             sudo -u "\$acct" XDG_RUNTIME_DIR="/run/user/\$uid" \\
                 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \\
                 systemctl --user stop dictee dictee-ptt dictee-tray dotoold \\
-                dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+                dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary \\
+                dictee-nemotron dictee-kyutai 2>/dev/null || true
         fi
         # Its dictee created /dev/shm/.dictee_state, which every account
         # shares: owned by it, the file makes the person's dictee fail until
@@ -741,7 +742,8 @@ _clean_greeter_accounts() {
             sudo -u "\$acct" XDG_RUNTIME_DIR="/run/user/\$uid" \\
                 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \\
                 systemctl --user stop dictee dictee-ptt dictee-tray dotoold \\
-                dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+                dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary \\
+                dictee-nemotron dictee-kyutai 2>/dev/null || true
         fi
         # Its dictee created /dev/shm/.dictee_state, which every account
         # shares: owned by it, the file makes the person's dictee fail until

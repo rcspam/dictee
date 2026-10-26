@@ -125,6 +125,14 @@ check_cleanup() {  # label, helper text
     check "$1: drops the greeter's files in /dev/shm after stopping its services" \
         "$(grep -nE "systemctl --user stop|find /dev/shm -maxdepth 1 -user \"\\\$acct\" -name '\.dictee\*' -delete" <<<"$2" \
             | cut -d: -f2- | sed -E 's/^ *//; s/ .*//' | tr '\n' ' ')" "systemctl find "
+    # The units are stopped by name: a backend missing from the list keeps
+    # running as the greeter and keeps the state file. The preset names
+    # every dictee unit the packages ship.
+    check "$1: stops every dictee unit the packages ship" \
+        "$(sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' <<<"$2" \
+            | grep -oE 'systemctl --user stop( +[a-z-]+)+' | tr -s ' ' '\n' | tail -n +4 | sort | tr '\n' ' ')" \
+        "$(sed -nE 's/^(enable|disable) (.+)\.service$/\2/p' "$ROOT/pkg/dictee/usr/lib/systemd/user-preset/90-dictee.preset" \
+            | sort | tr '\n' ' ')"
 }
 
 # --- deb, Arch -------------------------------------------------------------
