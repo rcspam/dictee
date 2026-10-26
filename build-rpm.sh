@@ -349,8 +349,6 @@ _clean_greeter_accounts() {
                     && echo "✓ login screen account \$acct removed from group '\$grp'" || true
             fi
         done
-        home=\$(getent passwd "\$acct" | cut -d: -f6)
-        [ -n "\$home" ] && [ -d "\$home/.config/systemd/user" ] || continue
         uid=\$(id -u "\$acct")
         if [ -d "/run/user/\$uid" ]; then
             sudo -u "\$acct" XDG_RUNTIME_DIR="/run/user/\$uid" \\
@@ -358,6 +356,12 @@ _clean_greeter_accounts() {
                 systemctl --user stop dictee dictee-ptt dictee-tray dotoold \\
                 dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
         fi
+        # Its dictee created /dev/shm/.dictee_state, which every account
+        # shares: owned by it, the file makes the person's dictee fail until
+        # the next reboot.
+        find /dev/shm -maxdepth 1 -user "\$acct" -name '.dictee*' -delete 2>/dev/null || true
+        home=\$(getent passwd "\$acct" | cut -d: -f6)
+        [ -n "\$home" ] && [ -d "\$home/.config/systemd/user" ] || continue
         n=\$(find "\$home/.config/systemd/user" ! -type d \\
             '(' -name 'dictee*.service' -o -name dotoold.service ')' \\
             -print -delete 2>/dev/null | wc -l) || n=0
@@ -654,8 +658,6 @@ _clean_greeter_accounts() {
                     && echo "✓ login screen account \$acct removed from group '\$grp'" || true
             fi
         done
-        home=\$(getent passwd "\$acct" | cut -d: -f6)
-        [ -n "\$home" ] && [ -d "\$home/.config/systemd/user" ] || continue
         uid=\$(id -u "\$acct")
         if [ -d "/run/user/\$uid" ]; then
             sudo -u "\$acct" XDG_RUNTIME_DIR="/run/user/\$uid" \\
@@ -663,6 +665,12 @@ _clean_greeter_accounts() {
                 systemctl --user stop dictee dictee-ptt dictee-tray dotoold \\
                 dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
         fi
+        # Its dictee created /dev/shm/.dictee_state, which every account
+        # shares: owned by it, the file makes the person's dictee fail until
+        # the next reboot.
+        find /dev/shm -maxdepth 1 -user "\$acct" -name '.dictee*' -delete 2>/dev/null || true
+        home=\$(getent passwd "\$acct" | cut -d: -f6)
+        [ -n "\$home" ] && [ -d "\$home/.config/systemd/user" ] || continue
         n=\$(find "\$home/.config/systemd/user" ! -type d \\
             '(' -name 'dictee*.service' -o -name dotoold.service ')' \\
             -print -delete 2>/dev/null | wc -l) || n=0

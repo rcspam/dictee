@@ -118,6 +118,13 @@ check_cleanup() {  # label, helper text
     check "$1: a person's dictee units kept" \
         "$(cd "$FAKE/home/raf/.config/systemd/user" && find . ! -type d | tr '\n' ' ')" \
         "./graphical-session.target.wants/dictee-ptt.service "
+    # The greeter's dictee wrote /dev/shm/.dictee_state, shared by every
+    # account: owned by the greeter it broke raf's dictee on arch-test until
+    # reboot. Checked on the text only, the test must not touch the real
+    # /dev/shm: the files go once the services are stopped.
+    check "$1: drops the greeter's files in /dev/shm after stopping its services" \
+        "$(grep -nE "systemctl --user stop|find /dev/shm -maxdepth 1 -user \"\\\$acct\" -name '\.dictee\*' -delete" <<<"$2" \
+            | cut -d: -f2- | sed -E 's/^ *//; s/ .*//' | tr '\n' ' ')" "systemctl find "
 }
 
 # --- deb, Arch -------------------------------------------------------------
