@@ -252,7 +252,7 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
 # Pin a specific version
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.6
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.7
 
 # Non-interactive
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
@@ -265,22 +265,22 @@ Download from [Releases](../../releases).
 **Ubuntu / Debian (CPU):**
 
 ```bash
-sudo apt install ./dictee-cpu_1.3.6-1_amd64.deb
+sudo apt install ./dictee-cpu_1.3.7-1_amd64.deb
 ```
 
 **Ubuntu / Debian (GPU):** requires the NVIDIA CUDA APT repo — see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) for the one-time setup, then:
 
 ```bash
-sudo apt install ./dictee-cuda_1.3.6-1_amd64.deb
+sudo apt install ./dictee-cuda_1.3.7-1_amd64.deb
 ```
 
 **Fedora / openSUSE (CPU):**
 
 ```bash
-sudo dnf install ./dictee-cpu-1.3.6-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.3.7-1.x86_64.rpm
 ```
 
-**Fedora / openSUSE (GPU):** add the CUDA repo first (see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), then `dictee-cuda-1.3.6-1.x86_64.rpm`.
+**Fedora / openSUSE (GPU):** add the CUDA repo first (see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), then `dictee-cuda-1.3.7-1.x86_64.rpm`.
 
 **Arch Linux (AUR):** `PKGBUILD` in the repo root (x86_64 + aarch64). Clone + `makepkg -si`.
 
@@ -289,8 +289,8 @@ sudo dnf install ./dictee-cpu-1.3.6-1.x86_64.rpm
 **Other distros (tarball):**
 
 ```bash
-tar xzf dictee-1.3.6_amd64.tar.gz
-cd dictee-1.3.6
+tar xzf dictee-1.3.7_amd64.tar.gz
+cd dictee-1.3.7
 sudo ./install.sh
 ```
 
@@ -440,7 +440,15 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 - **AppImage / Flatpak** packaging
 - **COSMIC / GNOME Shell** applets (contributions welcome!)
 
-**v1.3.6 (current)**: **input-remapper compatibility + keyboard layout fix**:
+**v1.3.7 (current)**: **any key for dictation + push-to-talk and install fixes**:
+- **Any key can be your dictation key** ([#22](https://github.com/rcspam/dictee/issues/22), [#25](https://github.com/rcspam/dictee/issues/25), [#30](https://github.com/rcspam/dictee/issues/30)): the key is read from the keyboard itself, so a microphone key, a media key or a laptop function key can be chosen.
+- **No more stuck keys with push-to-talk**: a Shift or the dictation key no longer stays pressed until logout.
+- **A headset is no longer muted while you dictate** ([#37](https://github.com/rcspam/dictee/issues/37)), and the speakers can be lowered instead of muted.
+- **Text output** page: type the text, paste it with Shift+Insert (works in terminals), or only copy it ([#28](https://github.com/rcspam/dictee/issues/28)).
+- **Runs on Debian 12 and Ubuntu 22.04** ([#32](https://github.com/rcspam/dictee/issues/32)), push-to-talk works again on Arch with shadow 4.20 ([#35](https://github.com/rcspam/dictee/issues/35)), and the installer no longer stops half-way ([#26](https://github.com/rcspam/dictee/issues/26), [#27](https://github.com/rcspam/dictee/issues/27)).
+- **The login screen is no longer treated as a user**: installing or upgrading removes the groups and services an older version gave to sddm, gdm or plasmalogin.
+
+**v1.3.6**: **input-remapper compatibility + keyboard layout fix**:
 - **Works with input-remapper** ([#19](https://github.com/rcspam/dictee/issues/19), [#20](https://github.com/rcspam/dictee/issues/20)): dictation no longer drops text or breaks push-to-talk when input-remapper is installed. Two new advanced options (typing delay, exclude devices) live on the Extra options page.
 - **Correct characters on every keyboard layout**: dictee now detects your active layout (KDE/GNOME) so typed text matches it, fixing dropped accents and swapped letters on non-US layouts.
 

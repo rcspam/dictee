@@ -252,7 +252,7 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
 # Épingler une version précise
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.6
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.7
 
 # Non interactif
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
@@ -265,22 +265,22 @@ Téléchargez depuis [Releases](../../releases).
 **Ubuntu / Debian (CPU) :**
 
 ```bash
-sudo apt install ./dictee-cpu_1.3.6-1_amd64.deb
+sudo apt install ./dictee-cpu_1.3.7-1_amd64.deb
 ```
 
 **Ubuntu / Debian (GPU) :** nécessite le dépôt APT CUDA NVIDIA — voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) pour la configuration unique, puis :
 
 ```bash
-sudo apt install ./dictee-cuda_1.3.6-1_amd64.deb
+sudo apt install ./dictee-cuda_1.3.7-1_amd64.deb
 ```
 
 **Fedora / openSUSE (CPU) :**
 
 ```bash
-sudo dnf install ./dictee-cpu-1.3.6-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.3.7-1.x86_64.rpm
 ```
 
-**Fedora / openSUSE (GPU) :** ajoutez d'abord le dépôt CUDA (voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), puis `dictee-cuda-1.3.6-1.x86_64.rpm`.
+**Fedora / openSUSE (GPU) :** ajoutez d'abord le dépôt CUDA (voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), puis `dictee-cuda-1.3.7-1.x86_64.rpm`.
 
 **Arch Linux (AUR) :** `PKGBUILD` à la racine du dépôt (x86_64 + aarch64). Clonez + `makepkg -si`.
 
@@ -289,8 +289,8 @@ sudo dnf install ./dictee-cpu-1.3.6-1.x86_64.rpm
 **Autres distros (tarball) :**
 
 ```bash
-tar xzf dictee-1.3.6_amd64.tar.gz
-cd dictee-1.3.6
+tar xzf dictee-1.3.7_amd64.tar.gz
+cd dictee-1.3.7
 sudo ./install.sh
 ```
 
@@ -423,7 +423,15 @@ Pour les rapports de bugs et contournements, voir [Troubleshooting](https://gith
 - Packaging **AppImage / Flatpak**
 - Applets **COSMIC / GNOME Shell** (contributions bienvenues !)
 
-**v1.3.6 (actuelle)** : **compatibilité input-remapper + correction de la disposition clavier** :
+**v1.3.7 (actuelle)** : **n'importe quelle touche pour dicter + corrections du push-to-talk et de l'installation** :
+- **N'importe quelle touche peut servir à dicter** ([#22](https://github.com/rcspam/dictee/issues/22), [#25](https://github.com/rcspam/dictee/issues/25), [#30](https://github.com/rcspam/dictee/issues/30)) : la touche est lue sur le clavier lui-même, donc une touche micro, une touche multimédia ou une touche de fonction de portable peut être choisie.
+- **Plus de touches coincées en push-to-talk** : un Shift ou la touche de dictée ne reste plus enfoncé jusqu'à la déconnexion.
+- **Le casque n'est plus coupé pendant la dictée** ([#37](https://github.com/rcspam/dictee/issues/37)), et les haut-parleurs peuvent être baissés au lieu d'être coupés.
+- Page **Sortie du texte** : taper le texte, le coller avec Maj+Inser (marche dans les terminaux), ou seulement le copier ([#28](https://github.com/rcspam/dictee/issues/28)).
+- **Fonctionne sur Debian 12 et Ubuntu 22.04** ([#32](https://github.com/rcspam/dictee/issues/32)), le push-to-talk remarche sur Arch avec shadow 4.20 ([#35](https://github.com/rcspam/dictee/issues/35)), et l'installeur ne s'arrête plus à mi-chemin ([#26](https://github.com/rcspam/dictee/issues/26), [#27](https://github.com/rcspam/dictee/issues/27)).
+- **L'écran de connexion n'est plus traité comme un utilisateur** : l'installation ou la mise à jour retire les groupes et services qu'une ancienne version avait donnés à sddm, gdm ou plasmalogin.
+
+**v1.3.6** : **compatibilité input-remapper + correction de la disposition clavier** :
 - **Fonctionne avec input-remapper** ([#19](https://github.com/rcspam/dictee/issues/19), [#20](https://github.com/rcspam/dictee/issues/20)) : la dictée ne perd plus de texte et le push-to-talk ne casse plus quand input-remapper est installé. Deux nouvelles options avancées (délai de frappe, exclusion de périphériques) sur la page Extra options.
 - **Caractères corrects sur toutes les dispositions clavier** : dictee détecte désormais votre disposition active (KDE/GNOME) pour que le texte tapé y corresponde, corrigeant les accents perdus et les lettres permutées sur les claviers non-US.
 
