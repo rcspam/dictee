@@ -22,20 +22,6 @@ RowLayout {
     // activeButton is stored in root (main.qml) to survive popup close/reopen
     signal actionRequested(string action)
 
-    // Le popup est un PlasmaQuick.Dialog dont le fond suit le thème du panel
-    // (souvent sombre, même en Breeze Light). On recouvre ce fond par un
-    // Rectangle qui suit Kirigami.Theme.backgroundColor du colorSet View
-    // (défini sur PlasmoidItem dans main.qml) pour un popup blanc en thème
-    // clair, sombre en thème sombre.
-    Rectangle {
-        parent: fullRep
-        anchors.fill: fullRep
-        anchors.margins: -Kirigami.Units.largeSpacing
-        z: -1
-        color: Kirigami.Theme.backgroundColor
-        radius: Kirigami.Units.largeSpacing * 1.5
-    }
-
     // Passive-instance overlay — covers the popup when this widget is not
     // the active master. Swallows clicks, displays explanation + "Take over"
     // escape hatch.

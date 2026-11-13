@@ -13,11 +13,6 @@ PlasmoidItem {
     // Plasmoid.configuration.pinPopup; this binding wires it to the popup.
     hideOnWindowDeactivate: !Plasmoid.configuration.pinPopup
 
-    // Le plasmoid hérite par défaut du color set du panel (souvent sombre).
-    // Forcer View garantit que le popup (FullRepresentation) suit le thème des
-    // applications — blanc en Breeze Light, sombre en Breeze Dark.
-    Kirigami.Theme.colorSet: Kirigami.Theme.View
-    Kirigami.Theme.inherit: false
 
     // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing"
     property string state: "offline"
