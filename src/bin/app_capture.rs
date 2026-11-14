@@ -23,7 +23,7 @@ use std::rc::Rc;
 
 use pipewire::loop_::Signal;
 use pipewire::types::ObjectType;
-use pipewire::{context::Context, main_loop::MainLoop, properties::properties};
+use pipewire::{context::ContextRc, main_loop::MainLoopRc, properties::properties};
 
 struct Args {
     source_name: String,
@@ -89,7 +89,7 @@ fn main() {
     let include_mic = args.include_mic;
 
     pipewire::init();
-    let mainloop = MainLoop::new(None).expect("mainloop");
+    let mainloop = MainLoopRc::new(None).expect("mainloop");
 
     // Block SIGINT/SIGTERM on this (main) thread BEFORE connecting to PipeWire.
     // `core.connect()` spawns a data-loop thread that inherits this mask, so both
@@ -99,8 +99,8 @@ fn main() {
     // disposition kills the process (exit 130/143) before the signalfd fires.
     block_term_signals();
 
-    let context = Context::new(&mainloop).expect("context");
-    let core = context.connect(None).expect("connect");
+    let context = ContextRc::new(&mainloop, None).expect("context");
+    let core = context.connect_rc(None).expect("connect");
     let registry = core.get_registry().expect("registry");
 
     // Quit the loop on SIGINT/SIGTERM so teardown (drop of core → source + links)
