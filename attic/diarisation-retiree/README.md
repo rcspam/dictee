@@ -16,5 +16,5 @@ Kept for reference, outside the build. Last compiled at commit 5e97acd
 Both were replaced in dictee 1.4 by Nemotron 3 Diarization (8 speakers,
 `diarize-only --engine nemotron3`), which serves files and the live meeting
 window alike: lower DER on French meetings (11.8 % against 20.6 % for
-Sortformer on SUMM-RE) and no 4-speaker cap. MOSS remains as a one-pass
-alternative.
+Sortformer on SUMM-RE) and no 4-speaker cap. MOSS, the one-pass
+alternative, followed them out in 1.4 too: see `attic/moss-retire/`.

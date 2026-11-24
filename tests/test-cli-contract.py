@@ -32,9 +32,11 @@ ACCEPTED_FLAGS = {
 }
 BINARIES = set(ACCEPTED_FLAGS)
 
-# Binaries retired with Sortformer and diarize-multi (1.4): nothing may run
-# them any more, the packages no longer ship them.
-RETIRED = {"transcribe-diarize", "transcribe-stream-diarize", "diarize-multi"}
+# Binaries retired with Sortformer and diarize-multi (1.4), and MOSS's
+# dictee-moss-diarize (1.4, moved to attic/moss-retire): nothing may run them
+# any more, the packages no longer ship them.
+RETIRED = {"transcribe-diarize", "transcribe-stream-diarize", "diarize-multi",
+           "dictee-moss-diarize"}
 
 # dictee-meeting-live is a Python script with no .py extension.
 PY_CALLERS = [
@@ -63,7 +65,7 @@ def python_invocations(path, binaries=None):
 
     `binaries` restricts (and extends) the set of command names to look for;
     it defaults to the Rust BINARIES table, and the Python-tool contract test
-    passes its own (dictee-transcribe, dictee-moss-diarize).
+    passes its own (dictee-transcribe).
     """
     binaries = BINARIES if binaries is None else binaries
     tree = ast.parse(path.read_text(), filename=str(path))
@@ -145,6 +147,19 @@ class CliContractTest(unittest.TestCase):
                 uses += [f"{name}: {b}" for b in shell_invocations(p, binaries=RETIRED)]
         self.assertEqual(uses, [], "\n".join(uses))
 
+    def test_no_python_caller_names_a_retired_tool(self):
+        """A command picked at run time (QProcess.start(cmd, args)) escapes
+        the list-literal scan above: dictee-transcribe ran MOSS that way."""
+        uses = []
+        for name in PY_CALLERS:
+            p = REPO / name
+            if not p.exists():
+                continue
+            for node in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.Constant) and node.value in RETIRED:
+                    uses.append(f"{name}:{node.lineno}: {node.value}")
+        self.assertEqual(uses, [], "\n".join(uses))
+
     def test_python_callers_pass_only_accepted_flags(self):
         violations = []
         for name in PY_CALLERS:
@@ -158,8 +173,8 @@ class CliContractTest(unittest.TestCase):
 
     def test_python_tools_accept_the_flags_python_callers_pass(self):
         """Same contract, Python -> Python: meeting-live hands the meeting
-        over with `dictee-transcribe --file ... --diarize --diar-engine ...`,
-        and dictee-moss-diarize is called by dictee-transcribe. An argparse
+        over with `dictee-transcribe --file ... --diarize --diar-engine ...`.
+        An argparse
         script rejects an unknown flag outright (exit 2), so a drifted flag
         breaks the handoff at Stop — after the meeting was recorded.
 
@@ -168,7 +183,6 @@ class CliContractTest(unittest.TestCase):
         """
         tools = {
             "dictee-transcribe": REPO / "dictee-transcribe.py",
-            "dictee-moss-diarize": REPO / "dictee-moss-diarize",
         }
         accepted = {}
         for name, path in tools.items():

@@ -405,41 +405,6 @@ msgstr ""
 "usa al posto di Sortformer per identificare i parlanti.<br>Usato da: "
 "<code>diarize-multi</code>"
 
-#: dictee-setup.py:2297
-msgid "MOSS integrated diarization"
-msgstr "Diarizzazione integrata MOSS"
-
-#: dictee-setup.py:2298
-msgid ""
-"One-pass transcription + speaker labels (~1 GB, GPU recommended — any "
-"brand). Own ASR engine — pick it explicitly in the Transcribe window "
-"(Engine: MOSS)."
-msgstr ""
-"Trascrizione + etichette dei parlanti in un solo passaggio (~1 GB, GPU "
-"consigliata, qualsiasi marca). Motore ASR proprio: da selezionare "
-"esplicitamente nella finestra di trascrizione (Motore: MOSS)."
-
-#: dictee-setup.py:2302
-msgid ""
-"<b>MOSS integrated diarization</b> — one-pass engine<br><br>A compact audio "
-"language model that produces the transcript and the speaker labels <b>in a "
-"single pass</b>, with no speaker-count cap.<br>Runs on the transcribe.cpp "
-"runtime, on <b>any GPU</b> (NVIDIA, AMD or Intel — including integrated "
-"graphics). On the CPU it works but is slower than real time, so it only "
-"suits batch use.<br><br><b>Optional</b> — select it explicitly in the "
-"Transcribe window (Engine: MOSS). It replaces the ASR engine for that run."
-"<br>Used by: <code>dictee-moss-diarize</code>"
-msgstr ""
-"<b>Diarizzazione integrata MOSS</b>: motore a passaggio singolo<br><br>Un "
-"modello linguistico audio compatto che produce la trascrizione e le "
-"etichette dei parlanti <b>in un solo passaggio</b>, senza limite al numero "
-"di parlanti.<br>Funziona sul runtime transcribe.cpp, su <b>qualsiasi GPU</b> "
-"(NVIDIA, AMD o Intel, comprese le schede integrate). Sulla CPU funziona ma "
-"più lentamente del tempo reale, quindi è adatto solo all'elaborazione in "
-"batch.<br><br><b>Opzionale</b>: da selezionare esplicitamente nella finestra "
-"di trascrizione (Motore: MOSS). Sostituisce il motore ASR per "
-"quell'esecuzione.<br>Usato da: <code>dictee-moss-diarize</code>"
-
 #: dictee-setup.py:2326
 msgid "French/English streaming ASR — NVIDIA GPU only (~2.2 GB)"
 msgstr "ASR in streaming francese/inglese — solo GPU NVIDIA (~2,2 GB)"
@@ -2482,8 +2447,8 @@ msgid ""
 "Nemotron 3 replaced these diarization engines in dictee 1.4: their models "
 "are no longer used and can be deleted."
 msgstr ""
-"Nemotron 3 ha sostituito questi motori di diarizzazione in dictee 1.4: i loro "
-"modelli non sono più usati e possono essere eliminati."
+"Nemotron 3 ha sostituito questi motori di diarizzazione in dictee 1.4: i "
+"loro modelli non sono più usati e possono essere eliminati."
 
 #: dictee-setup.py:10035
 msgid "{name}: {size} MB"
@@ -2492,23 +2457,6 @@ msgstr "{name}: {size} MB"
 #: dictee-setup.py:10061
 msgid "Could not delete {name}."
 msgstr "Impossibile eliminare {name}."
-
-#: dictee-setup.py:9548
-msgid "MOSS (integrated, one pass)"
-msgstr "MOSS (integrato, un passaggio)"
-
-#: dictee-setup.py:9566
-msgid "Runtime: ready."
-msgstr "Runtime: pronto."
-
-#: dictee-setup.py:9569
-#, python-brace-format
-msgid "Runtime: not ready — {details}."
-msgstr "Runtime: non pronto ({details})."
-
-#: dictee-setup.py:9573
-msgid "Runtime: dictee-moss-diarize not installed."
-msgstr "Runtime: dictee-moss-diarize non è installato."
 
 #: dictee-setup.py:9608 dictee-setup.py:9754 dictee-setup.py:9825
 #: dictee-setup.py:9863 dictee-setup.py:10066 dictee-setup.py:10174
@@ -3851,7 +3799,11 @@ msgid ""
 "Key '{key}' cannot be used for dictation. Choose a function key (F1-F24), "
 "the top-left {key41} key, or Pause. Other keys are left alone because your "
 "system or your typing already needs them."
-msgstr "Il tasto «{key}» non può essere usato per la dettatura. Scegli un tasto funzione (F1-F24), il tasto {key41} in alto a sinistra, oppure Pausa. Gli altri tasti restano liberi perché il tuo sistema o la digitazione li usano già."
+msgstr ""
+"Il tasto «{key}» non può essere usato per la dettatura. Scegli un tasto "
+"funzione (F1-F24), il tasto {key41} in alto a sinistra, oppure Pausa. Gli "
+"altri tasti restano liberi perché il tuo sistema o la digitazione li usano "
+"già."
 
 #: dictee-setup.py:17104
 #, python-brace-format
@@ -3908,7 +3860,9 @@ msgstr "{name}  [virtuale]"
 msgid ""
 "This key is used for typing. Prefer a function key (F1-F24) or the top-left "
 "{key41} key."
-msgstr "Questo tasto serve per digitare. Preferisci un tasto funzione (F1-F24) o il tasto {key41} in alto a sinistra."
+msgstr ""
+"Questo tasto serve per digitare. Preferisci un tasto funzione (F1-F24) o il "
+"tasto {key41} in alto a sinistra."
 
 #: dictee-setup.py:17241
 msgid "Escape is used to cancel dictation. Choose another key."
@@ -4709,6 +4663,331 @@ msgstr ""
 "Dictée non è ancora configurato.\n"
 "Vuoi avviare la configurazione guidata?"
 
+#: dictee-setup.py:17221
+#, python-brace-format
+msgid "{name}  [pointer axes — ignored unless whitelisted]"
+msgstr "{name}  [assi del puntatore — ignorata se non in whitelist]"
+
+#: dictee-setup.py
+msgid "Press the key you want to use… (Esc to cancel)"
+msgstr "Premi il tasto che vuoi usare… (Esc per annullare)"
+
+#: dictee-setup.py
+msgid "this key"
+msgstr "questo tasto"
+
+#: dictee-setup.py
+msgid "Key not supported"
+msgstr "Tasto non supportato"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is on '{device}', which dictee does not listen to by default. Add "
+"it to the extra input devices (Extra options page) or the key will do "
+"nothing."
+msgstr ""
+"Questo tasto si trova su «{device}», che dictee non ascolta per impostazione "
+"predefinita. Aggiungilo ai dispositivi di input aggiuntivi (pagina Opzioni "
+"aggiuntive), altrimenti il tasto non farà nulla."
+
+#: dictee-setup.py
+msgid "adjust the sound"
+msgstr "regolare l'audio"
+
+#: dictee-setup.py
+msgid "adjust the screen"
+msgstr "regolare lo schermo"
+
+#: dictee-setup.py
+msgid "adjust the keyboard backlight"
+msgstr "regolare la retroilluminazione della tastiera"
+
+#: dictee-setup.py
+msgid "control media playback"
+msgstr "controllare la riproduzione multimediale"
+
+#: dictee-setup.py
+msgid "perform a system function"
+msgstr "una funzione di sistema"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is used by your computer to {what}. Choosing it for dictation takes "
+"that away: dictee receives the key before your desktop does."
+msgstr ""
+"Il computer usa questo tasto per {what}. Sceglierlo per la dettatura te lo "
+"toglie: dictee riceve il tasto prima del desktop."
+
+#: dictee-setup.py:6632
+msgid "Documentation"
+msgstr "Documentazione"
+
+#: dictee-setup.py:6634
+msgid "Open the wiki page for the current section in your browser"
+msgstr "Apri nel browser la pagina del wiki di questa sezione"
+
+#: dictee-setup.py:2367
+msgid ""
+"Speaker diarization add-on by NVIDIA (~400 MB). Identifies up to 8 speakers "
+"in a recording. Optional: only needed for speaker identification."
+msgstr ""
+"Componente di diarizzazione di NVIDIA (~400 MB). Identifica fino a 8 "
+"parlanti in una registrazione. Opzionale: serve solo per l'identificazione "
+"dei parlanti."
+
+#: dictee-setup.py:2371
+msgid ""
+"<b>Nemotron 3 Diarization</b>: NVIDIA speaker diarization "
+"model<br><br>Identifies and separates up to <b>8 different speakers</b> in "
+"an audio recording, on the GPU or the CPU.<br>Choose it in the Engine list "
+"of the file transcription window.<br><br>License: NVIDIA OpenMDW-1.1 (<a "
+"href=\"https://openmdw.ai/license/1-1/\">openmdw.ai/license/1-1</"
+"a>)<br><b>Optional</b>: only needed if you want speaker identification."
+"<br>Used by: <code>diarize-only --engine nemotron3</code>"
+msgstr ""
+"<b>Nemotron 3 Diarization</b>: modello di diarizzazione di "
+"NVIDIA<br><br>Identifica e separa fino a <b>8 interlocutori diversi</b> in "
+"una registrazione audio, sulla GPU o sulla CPU.<br>Sceglilo nell'elenco dei "
+"motori (Engine) della finestra di trascrizione dei file.<br><br>Licenza: "
+"NVIDIA OpenMDW-1.1 (<a href=\"https://openmdw.ai/license/1-1/\">openmdw.ai/"
+"license/1-1</a>)<br><b>Opzionale</b>: necessario solo per l'identificazione "
+"degli interlocutori.<br>Usato da: <code>diarize-only --engine nemotron3</"
+"code>"
+
+#: dictee-setup.py:10004 dictee-setup.py:10056
+msgid "Nemotron 3 Diarization"
+msgstr "Nemotron 3 Diarization"
+
+#: dictee-setup.py
+msgid "Mute playback while recording:"
+msgstr "Disattiva l'audio durante la registrazione:"
+
+#: dictee-setup.py
+msgid "Automatic (not on a headset)"
+msgstr "Automatico (non con le cuffie)"
+
+#: dictee-setup.py
+msgid "Always"
+msgstr "Sempre"
+
+#: dictee-setup.py
+msgid "Never"
+msgstr "Mai"
+
+#: dictee-setup.py
+msgid ""
+"Keeps the speakers out of the recording. Automatic skips the mute when the "
+"active output is a headset, where there is nothing to keep out."
+msgstr ""
+"Evita che gli altoparlanti finiscano nella registrazione. Automatico non "
+"disattiva l'audio quando l'uscita attiva è una cuffia."
+
+#: dictee-setup.py
+msgid "Lower to, instead of muting:"
+msgstr "Abbassa a, invece di disattivare:"
+
+#: dictee-setup.py
+msgid "Mute"
+msgstr "Muto"
+
+#: dictee-setup.py
+msgid ""
+"0 mutes the output, as before. Any other value caps it at that percentage "
+"while recording, and leaves it alone when it is already lower. Useful on "
+"headphones; on speakers even a quiet output reaches the microphone."
+msgstr ""
+"0 disattiva l'audio, come prima. Qualsiasi altro valore lo limita a quella "
+"percentuale durante la registrazione e lo lascia stare se è già più basso."
+
+#: dictee-setup.py
+msgid "Lower to, on speakers:"
+msgstr "Abbassa a, sugli altoparlanti:"
+
+#: dictee-setup.py
+msgid "Lower to, on a headset:"
+msgstr "Abbassa a, con le cuffie:"
+
+#: dictee-setup.py
+msgid "Off"
+msgstr "Nessuno"
+
+#: dictee-setup.py
+msgid ""
+"0 mutes the output, as before. Any other value caps it at that percentage "
+"while recording, and leaves it alone when it is already lower."
+msgstr ""
+"0 disattiva l'audio, come prima. Qualsiasi altro valore lo limita a quella "
+"percentuale durante la registrazione."
+
+#: dictee-setup.py
+msgid ""
+"A headset is never muted: nothing of what it plays reaches the microphone. 0 "
+"leaves it untouched, any other value caps it while recording."
+msgstr ""
+"Le cuffie non vengono mai disattivate: nulla di ciò che riproducono "
+"raggiunge il microfono. 0 non le tocca, qualsiasi altro valore le limita "
+"durante la registrazione."
+
+#: dictee-setup.py
+msgid "Playback while recording:"
+msgstr "Audio durante la registrazione:"
+
+#: dictee-setup.py
+msgid "Muted"
+msgstr "Muto"
+
+#: dictee-setup.py
+msgid "Untouched"
+msgstr "Invariato"
+
+#: dictee-setup.py
+msgid ""
+"Keeps the speakers out of the recording. Slide left to mute, right to leave "
+"the sound alone, anywhere between to cap it at that level while you dictate."
+msgstr ""
+"Evita che gli altoparlanti finiscano nella registrazione. A sinistra "
+"disattiva, a destra non cambia nulla, in mezzo limita a quel livello."
+
+#: dictee-setup.py
+msgid ""
+"Speakers: muted by default, since what they play reaches the microphone and "
+"ends up in the transcription."
+msgstr ""
+"Altoparlanti: disattivati per impostazione predefinita, perché ciò che "
+"riproducono raggiunge il microfono."
+
+#: dictee-setup.py
+msgid ""
+"Headset: left alone by default, nothing it plays reaches the microphone. "
+"Lower it to keep hearing a call at a quieter level while you dictate."
+msgstr ""
+"Cuffie: invariate per impostazione predefinita, nulla raggiunge il "
+"microfono. Abbassale per continuare a sentire una chiamata più piano."
+
+msgid "Check for animation-speech updates"
+msgstr "Cerca aggiornamenti di animation-speech"
+
+#, python-brace-format
+msgid "animation-speech {version} is already the latest release."
+msgstr "animation-speech {version} è già l'ultima versione pubblicata."
+
+#: dictee-setup.py
+msgid ""
+"Parakeet v3 trained further by Moondream (~2.5 GB). Better French, no switch "
+"to English on hard recordings. Same speed and memory as v3."
+msgstr ""
+"Parakeet v3 addestrato più a lungo da Moondream (~2,5 GB). Francese "
+"migliore, nessun passaggio all'inglese sulle registrazioni difficili. Stessa "
+"velocità e memoria di v3."
+
+#: dictee-setup.py
+#, no-python-format
+msgid ""
+"<b>Parakeet Ultra 0.6B — FP32</b><br><br>Parakeet-TDT 0.6B v3 trained "
+"further by Moondream: same architecture, same 25 languages, same speed and "
+"memory, different weights.<br><br>Measured on French: 5.5 % word error rate "
+"on read speech (7.7 % for v3), and no switch to English on the recordings "
+"where v3 drifts (meetings, phone audio, long memos).<br><br>License CC-"
+"BY-4.0 (Moondream)."
+msgstr ""
+"<b>Parakeet Ultra 0.6B — FP32</b><br><br>Parakeet-TDT 0.6B v3 addestrato più "
+"a lungo da Moondream: stessa architettura, stesse 25 lingue, stessa velocità "
+"e memoria, pesi diversi.<br><br>Misurato in francese: 5,5 % di errori sulle "
+"parole nel parlato letto (7,7 % con v3), e nessun passaggio all'inglese "
+"sulle registrazioni in cui v3 deriva (riunioni, audio telefonico, memo "
+"lunghi).<br><br>Licenza CC-BY-4.0 (Moondream)."
+
+#: dictee-setup.py
+msgid ""
+"Quantized Ultra (~650 MB). Always runs on the CPU: pick it when there is no "
+"GPU, or too little VRAM for FP32."
+msgstr ""
+"Ultra quantizzato (~650 MB). Gira sempre sulla CPU: sceglilo se non c'è una "
+"GPU o se la VRAM non basta per FP32."
+
+#: dictee-setup.py
+msgid ""
+"<b>Parakeet Ultra 0.6B — int8 quantized</b><br><br>Same model as Ultra FP32 "
+"with 8-bit quantized weights: 650 MB on disk / RAM instead of 2.4 GB, faster "
+"on CPU.<br><br>Measured on French: same accuracy as v3 int8 on read speech, "
+"and no switch to English where v3 int8 drifts (meetings).<br><br><b>Always "
+"runs on the CPU</b>: int8 is not usable on the CUDA GPU runtime."
+msgstr ""
+"<b>Parakeet Ultra 0.6B — quantizzato int8</b><br><br>Stesso modello di Ultra "
+"FP32 con pesi quantizzati a 8 bit: 650 MB su disco / in RAM invece di 2,4 "
+"GB, più veloce su CPU.<br><br>Misurato in francese: stessa precisione di v3 "
+"int8 nel parlato letto, e nessun passaggio all'inglese dove v3 int8 deriva "
+"(riunioni).<br><br><b>Gira sempre sulla CPU</b>: int8 non è utilizzabile con "
+"il runtime GPU CUDA."
+
+#: dictee-setup.py
+msgid "Active model:"
+msgstr "Modello attivo:"
+
+#: dictee-tray.py
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (preciso)"
+
+#: dictee-tray.py
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (veloce)"
+
+#: dictee-tray.py
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (preciso)"
+
+#: dictee-tray.py
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (veloce)"
+
+#~ msgid "MOSS integrated diarization"
+#~ msgstr "Diarizzazione integrata MOSS"
+
+#~ msgid ""
+#~ "One-pass transcription + speaker labels (~1 GB, GPU recommended — any "
+#~ "brand). Own ASR engine — pick it explicitly in the Transcribe window "
+#~ "(Engine: MOSS)."
+#~ msgstr ""
+#~ "Trascrizione + etichette dei parlanti in un solo passaggio (~1 GB, GPU "
+#~ "consigliata, qualsiasi marca). Motore ASR proprio: da selezionare "
+#~ "esplicitamente nella finestra di trascrizione (Motore: MOSS)."
+
+#~ msgid ""
+#~ "<b>MOSS integrated diarization</b> — one-pass engine<br><br>A compact "
+#~ "audio language model that produces the transcript and the speaker labels "
+#~ "<b>in a single pass</b>, with no speaker-count cap.<br>Runs on the "
+#~ "transcribe.cpp runtime, on <b>any GPU</b> (NVIDIA, AMD or Intel — "
+#~ "including integrated graphics). On the CPU it works but is slower than "
+#~ "real time, so it only suits batch use.<br><br><b>Optional</b> — select it "
+#~ "explicitly in the Transcribe window (Engine: MOSS). It replaces the ASR "
+#~ "engine for that run.<br>Used by: <code>dictee-moss-diarize</code>"
+#~ msgstr ""
+#~ "<b>Diarizzazione integrata MOSS</b>: motore a passaggio singolo<br><br>Un "
+#~ "modello linguistico audio compatto che produce la trascrizione e le "
+#~ "etichette dei parlanti <b>in un solo passaggio</b>, senza limite al "
+#~ "numero di parlanti.<br>Funziona sul runtime transcribe.cpp, su "
+#~ "<b>qualsiasi GPU</b> (NVIDIA, AMD o Intel, comprese le schede integrate). "
+#~ "Sulla CPU funziona ma più lentamente del tempo reale, quindi è adatto "
+#~ "solo all'elaborazione in batch.<br><br><b>Opzionale</b>: da selezionare "
+#~ "esplicitamente nella finestra di trascrizione (Motore: MOSS). Sostituisce "
+#~ "il motore ASR per quell'esecuzione.<br>Usato da: <code>dictee-moss-"
+#~ "diarize</code>"
+
+#~ msgid "MOSS (integrated, one pass)"
+#~ msgstr "MOSS (integrato, un passaggio)"
+
+#~ msgid "Runtime: ready."
+#~ msgstr "Runtime: pronto."
+
+#, python-brace-format
+#~ msgid "Runtime: not ready — {details}."
+#~ msgstr "Runtime: non pronto ({details})."
+
+#~ msgid "Runtime: dictee-moss-diarize not installed."
+#~ msgstr "Runtime: dictee-moss-diarize non è installato."
+
 #~ msgid ""
 #~ "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can prevent the "
 #~ "transcript from being typed into some Electron apps."
@@ -4766,205 +5045,3 @@ msgstr ""
 #~ msgstr ""
 #~ "La GPU ha solo {:.1f} GB di VRAM: Parakeet FP32 potrebbe andare in OOM al "
 #~ "caricamento. Valuta di passare alla CPU o di usare INT8."
-
-#: dictee-setup.py:17221
-#, python-brace-format
-msgid "{name}  [pointer axes — ignored unless whitelisted]"
-msgstr "{name}  [assi del puntatore — ignorata se non in whitelist]"
-
-#: dictee-setup.py
-msgid "Press the key you want to use… (Esc to cancel)"
-msgstr "Premi il tasto che vuoi usare… (Esc per annullare)"
-
-#: dictee-setup.py
-msgid "this key"
-msgstr "questo tasto"
-
-#: dictee-setup.py
-msgid "Key not supported"
-msgstr "Tasto non supportato"
-
-#: dictee-setup.py
-#, python-brace-format
-msgid ""
-"This key is on '{device}', which dictee does not listen to by default. "
-"Add it to the extra input devices (Extra options page) or the key will "
-"do nothing."
-msgstr "Questo tasto si trova su «{device}», che dictee non ascolta per impostazione predefinita. Aggiungilo ai dispositivi di input aggiuntivi (pagina Opzioni aggiuntive), altrimenti il tasto non farà nulla."
-
-#: dictee-setup.py
-msgid "adjust the sound"
-msgstr "regolare l'audio"
-
-#: dictee-setup.py
-msgid "adjust the screen"
-msgstr "regolare lo schermo"
-
-#: dictee-setup.py
-msgid "adjust the keyboard backlight"
-msgstr "regolare la retroilluminazione della tastiera"
-
-#: dictee-setup.py
-msgid "control media playback"
-msgstr "controllare la riproduzione multimediale"
-
-#: dictee-setup.py
-msgid "perform a system function"
-msgstr "una funzione di sistema"
-
-#: dictee-setup.py
-#, python-brace-format
-msgid ""
-"This key is used by your computer to {what}. Choosing it for dictation takes "
-"that away: dictee receives the key before your desktop does."
-msgstr "Il computer usa questo tasto per {what}. Sceglierlo per la dettatura te lo toglie: dictee riceve il tasto prima del desktop."
-
-
-#: dictee-setup.py:6632
-msgid "Documentation"
-msgstr "Documentazione"
-
-#: dictee-setup.py:6634
-msgid "Open the wiki page for the current section in your browser"
-msgstr "Apri nel browser la pagina del wiki di questa sezione"
-
-#: dictee-setup.py:2367
-msgid ""
-"Speaker diarization add-on by NVIDIA (~400 MB). Identifies up to 8 speakers "
-"in a recording. Optional: only needed for speaker identification."
-msgstr "Componente di diarizzazione di NVIDIA (~400 MB). Identifica fino a 8 parlanti in una registrazione. Opzionale: serve solo per l'identificazione dei parlanti."
-
-#: dictee-setup.py:2371
-msgid ""
-"<b>Nemotron 3 Diarization</b>: NVIDIA speaker diarization "
-"model<br><br>Identifies and separates up to <b>8 different speakers</b> in "
-"an audio recording, on the GPU or the CPU.<br>Choose it in the Engine list "
-"of the file transcription window.<br><br>License: NVIDIA OpenMDW-1.1 (<a "
-"href=\"https://openmdw.ai/license/1-1/\">openmdw.ai/license/1-1</"
-"a>)<br><b>Optional</b>: only needed if you want speaker identification."
-"<br>Used by: <code>diarize-only --engine nemotron3</code>"
-msgstr "<b>Nemotron 3 Diarization</b>: modello di diarizzazione di NVIDIA<br><br>Identifica e separa fino a <b>8 interlocutori diversi</b> in una registrazione audio, sulla GPU o sulla CPU.<br>Sceglilo nell'elenco dei motori (Engine) della finestra di trascrizione dei file.<br><br>Licenza: NVIDIA OpenMDW-1.1 (<a href=\"https://openmdw.ai/license/1-1/\">openmdw.ai/license/1-1</a>)<br><b>Opzionale</b>: necessario solo per l'identificazione degli interlocutori.<br>Usato da: <code>diarize-only --engine nemotron3</code>"
-
-#: dictee-setup.py:10004 dictee-setup.py:10056
-msgid "Nemotron 3 Diarization"
-msgstr "Nemotron 3 Diarization"
-
-#: dictee-setup.py
-msgid "Mute playback while recording:"
-msgstr "Disattiva l'audio durante la registrazione:"
-
-#: dictee-setup.py
-msgid "Automatic (not on a headset)"
-msgstr "Automatico (non con le cuffie)"
-
-#: dictee-setup.py
-msgid "Always"
-msgstr "Sempre"
-
-#: dictee-setup.py
-msgid "Never"
-msgstr "Mai"
-
-#: dictee-setup.py
-msgid "Keeps the speakers out of the recording. Automatic skips the mute when the active output is a headset, where there is nothing to keep out."
-msgstr "Evita che gli altoparlanti finiscano nella registrazione. Automatico non disattiva l'audio quando l'uscita attiva è una cuffia."
-
-#: dictee-setup.py
-msgid "Lower to, instead of muting:"
-msgstr "Abbassa a, invece di disattivare:"
-
-#: dictee-setup.py
-msgid "Mute"
-msgstr "Muto"
-
-#: dictee-setup.py
-msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone."
-msgstr "0 disattiva l'audio, come prima. Qualsiasi altro valore lo limita a quella percentuale durante la registrazione e lo lascia stare se è già più basso."
-
-#: dictee-setup.py
-msgid "Lower to, on speakers:"
-msgstr "Abbassa a, sugli altoparlanti:"
-
-#: dictee-setup.py
-msgid "Lower to, on a headset:"
-msgstr "Abbassa a, con le cuffie:"
-
-#: dictee-setup.py
-msgid "Off"
-msgstr "Nessuno"
-
-#: dictee-setup.py
-msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower."
-msgstr "0 disattiva l'audio, come prima. Qualsiasi altro valore lo limita a quella percentuale durante la registrazione."
-
-#: dictee-setup.py
-msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
-msgstr "Le cuffie non vengono mai disattivate: nulla di ciò che riproducono raggiunge il microfono. 0 non le tocca, qualsiasi altro valore le limita durante la registrazione."
-
-#: dictee-setup.py
-msgid "Playback while recording:"
-msgstr "Audio durante la registrazione:"
-
-#: dictee-setup.py
-msgid "Muted"
-msgstr "Muto"
-
-#: dictee-setup.py
-msgid "Untouched"
-msgstr "Invariato"
-
-#: dictee-setup.py
-msgid "Keeps the speakers out of the recording. Slide left to mute, right to leave the sound alone, anywhere between to cap it at that level while you dictate."
-msgstr "Evita che gli altoparlanti finiscano nella registrazione. A sinistra disattiva, a destra non cambia nulla, in mezzo limita a quel livello."
-
-#: dictee-setup.py
-msgid "Speakers: muted by default, since what they play reaches the microphone and ends up in the transcription."
-msgstr "Altoparlanti: disattivati per impostazione predefinita, perché ciò che riproducono raggiunge il microfono."
-
-#: dictee-setup.py
-msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
-msgstr "Cuffie: invariate per impostazione predefinita, nulla raggiunge il microfono. Abbassale per continuare a sentire una chiamata più piano."
-
-msgid "Check for animation-speech updates"
-msgstr "Cerca aggiornamenti di animation-speech"
-
-#, python-brace-format
-msgid "animation-speech {version} is already the latest release."
-msgstr "animation-speech {version} è già l'ultima versione pubblicata."
-
-#: dictee-setup.py
-msgid "Parakeet v3 trained further by Moondream (~2.5 GB). Better French, no switch to English on hard recordings. Same speed and memory as v3."
-msgstr "Parakeet v3 addestrato più a lungo da Moondream (~2,5 GB). Francese migliore, nessun passaggio all'inglese sulle registrazioni difficili. Stessa velocità e memoria di v3."
-
-#: dictee-setup.py
-#, no-python-format
-msgid "<b>Parakeet Ultra 0.6B — FP32</b><br><br>Parakeet-TDT 0.6B v3 trained further by Moondream: same architecture, same 25 languages, same speed and memory, different weights.<br><br>Measured on French: 5.5 % word error rate on read speech (7.7 % for v3), and no switch to English on the recordings where v3 drifts (meetings, phone audio, long memos).<br><br>License CC-BY-4.0 (Moondream)."
-msgstr "<b>Parakeet Ultra 0.6B — FP32</b><br><br>Parakeet-TDT 0.6B v3 addestrato più a lungo da Moondream: stessa architettura, stesse 25 lingue, stessa velocità e memoria, pesi diversi.<br><br>Misurato in francese: 5,5 % di errori sulle parole nel parlato letto (7,7 % con v3), e nessun passaggio all'inglese sulle registrazioni in cui v3 deriva (riunioni, audio telefonico, memo lunghi).<br><br>Licenza CC-BY-4.0 (Moondream)."
-
-#: dictee-setup.py
-msgid "Quantized Ultra (~650 MB). Always runs on the CPU: pick it when there is no GPU, or too little VRAM for FP32."
-msgstr "Ultra quantizzato (~650 MB). Gira sempre sulla CPU: sceglilo se non c'è una GPU o se la VRAM non basta per FP32."
-
-#: dictee-setup.py
-msgid "<b>Parakeet Ultra 0.6B — int8 quantized</b><br><br>Same model as Ultra FP32 with 8-bit quantized weights: 650 MB on disk / RAM instead of 2.4 GB, faster on CPU.<br><br>Measured on French: same accuracy as v3 int8 on read speech, and no switch to English where v3 int8 drifts (meetings).<br><br><b>Always runs on the CPU</b>: int8 is not usable on the CUDA GPU runtime."
-msgstr "<b>Parakeet Ultra 0.6B — quantizzato int8</b><br><br>Stesso modello di Ultra FP32 con pesi quantizzati a 8 bit: 650 MB su disco / in RAM invece di 2,4 GB, più veloce su CPU.<br><br>Misurato in francese: stessa precisione di v3 int8 nel parlato letto, e nessun passaggio all'inglese dove v3 int8 deriva (riunioni).<br><br><b>Gira sempre sulla CPU</b>: int8 non è utilizzabile con il runtime GPU CUDA."
-
-#: dictee-setup.py
-msgid "Active model:"
-msgstr "Modello attivo:"
-
-#: dictee-tray.py
-msgid "Parakeet Ultra (precise)"
-msgstr "Parakeet Ultra (preciso)"
-
-#: dictee-tray.py
-msgid "Parakeet Ultra (fast)"
-msgstr "Parakeet Ultra (veloce)"
-
-#: dictee-tray.py
-msgid "Parakeet v3 (precise)"
-msgstr "Parakeet v3 (preciso)"
-
-#: dictee-tray.py
-msgid "Parakeet v3 (fast)"
-msgstr "Parakeet v3 (veloce)"

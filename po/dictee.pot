@@ -342,29 +342,6 @@ msgid ""
 "code>"
 msgstr ""
 
-#: dictee-setup.py:2297
-msgid "MOSS integrated diarization"
-msgstr ""
-
-#: dictee-setup.py:2298
-msgid ""
-"One-pass transcription + speaker labels (~1 GB, GPU recommended — any "
-"brand). Own ASR engine — pick it explicitly in the Transcribe window "
-"(Engine: MOSS)."
-msgstr ""
-
-#: dictee-setup.py:2302
-msgid ""
-"<b>MOSS integrated diarization</b> — one-pass engine<br><br>A compact audio "
-"language model that produces the transcript and the speaker labels <b>in a "
-"single pass</b>, with no speaker-count cap.<br>Runs on the transcribe.cpp "
-"runtime, on <b>any GPU</b> (NVIDIA, AMD or Intel — including integrated "
-"graphics). On the CPU it works but is slower than real time, so it only "
-"suits batch use.<br><br><b>Optional</b> — select it explicitly in the "
-"Transcribe window (Engine: MOSS). It replaces the ASR engine for that run."
-"<br>Used by: <code>dictee-moss-diarize</code>"
-msgstr ""
-
 #: dictee-setup.py:2326
 msgid "French/English streaming ASR — NVIDIA GPU only (~2.2 GB)"
 msgstr ""
@@ -2224,23 +2201,6 @@ msgstr ""
 
 #: dictee-setup.py:10061
 msgid "Could not delete {name}."
-msgstr ""
-
-#: dictee-setup.py:9548
-msgid "MOSS (integrated, one pass)"
-msgstr ""
-
-#: dictee-setup.py:9566
-msgid "Runtime: ready."
-msgstr ""
-
-#: dictee-setup.py:9569
-#, python-brace-format
-msgid "Runtime: not ready — {details}."
-msgstr ""
-
-#: dictee-setup.py:9573
-msgid "Runtime: dictee-moss-diarize not installed."
 msgstr ""
 
 #: dictee-setup.py:9608 dictee-setup.py:9754 dictee-setup.py:9825
