@@ -113,13 +113,16 @@ jobs:
         QT_QPA_PLATFORM: offscreen
     # Rides in this job for its Qt packages: all five load dictee-setup.py whole.
     # pacman, sg, newgrp and pip are stand-ins or captured, nothing runs for real.
-    - name: Run install type (Arch), docker group bridge, retired models, Whisper install and animation-speech update tests
+    - name: Run install type (Arch), docker group bridge, retired models, Whisper install and animation-speech update and Parakeet Ultra tests
       run: |
         python3 tests/offscreen-check_install_type_arch.py
         python3 tests/offscreen-check_docker_group_bridge.py
         python3 tests/offscreen-check_retired_models.py
         python3 tests/offscreen-check_whisper_install_pin.py
         python3 tests/offscreen-check_anim_speech_update.py
+        python3 tests/test-parakeet-ultra-setup.py
+        python3 tests/test-tray-parakeet-variants.py
+        python3 tests/test-parakeet-ultra-models.py
       env:
         QT_QPA_PLATFORM: offscreen
     # The sandboxed evdev loop on fake uinput keyboards: no key may stay
@@ -195,6 +198,8 @@ jobs:
       run: bash tests/test-postinst-skips-greeter.sh
     - name: Run dotool group bridge tests
       run: bash tests/test-dotool-group-bridge.sh
+    - name: Run dictee-switch-backend parakeet tests
+      run: bash tests/test-switch-backend-parakeet.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest
