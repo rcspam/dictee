@@ -353,8 +353,7 @@ def _tt(text):
     return f"<span style='font-size:11pt'>{text}</span>"
 
 
-def analysis_command(audio, transcript, diar_engine, asr_spec, preview_whole,
-                     sensitivity):
+def analysis_command(audio, transcript, asr_spec, preview_whole, sensitivity):
     """The dictee-transcribe command that opens a stopped meeting, with its
     speaker threshold (`sensitivity`, 0 to 100).
 
@@ -362,8 +361,8 @@ def analysis_command(audio, transcript, diar_engine, asr_spec, preview_whole,
     Nemotron 3: it is as accurate as a new analysis (SUMM-RE, 2026-10-04:
     WER 31.0 against 31.5 % and 38.6 against 39.2 %, words on the right
     voice 87.5 against 87.8 % and 82.0 against 82.2 %), so the meeting
-    opens at once. With MOSS, or a preview that missed turns or holds
-    none, the meeting is analysed again; with Nemotron 3.5 too, whose
+    opens at once. With a preview that missed turns or holds none, the
+    meeting is analysed again by Nemotron 3; with Nemotron 3.5 too, whose
     preview goes piece by piece while its analysis transcribes the whole
     file (WER 32.9 against 29.0 % on 004c, 2026-10-05)."""
     has_lines = False
@@ -374,12 +373,32 @@ def analysis_command(audio, transcript, diar_engine, asr_spec, preview_whole,
     except OSError:
         pass
     cmd = ["dictee-transcribe", "--file", str(audio)]
-    if preview_whole and diar_engine != "moss" and asr_spec != "nemotron" and has_lines:
+    if preview_whole and asr_spec != "nemotron" and has_lines:
         cmd += ["--transcript", str(transcript)]
     else:
-        cmd += ["--diarize", "--diar-engine", diar_engine or "nemotron3"]
+        cmd += ["--diarize", "--diar-engine", "nemotron3"]
     cmd += ["--asr-model", asr_spec, "--sensitivity", str(sensitivity)]
     return cmd
+
+
+def fill_diar_combo(combo, saved, available):
+    """Fill the meeting window's diarization combo: Nemotron 3 alone since
+    MOSS left (1.4), the combo kept for the layout but greyed. A value saved
+    in DICTEE_MEETING_DIAR_ENGINE that is no longer offered (moss, or auto,
+    multi and sortformer from older versions) falls back to Nemotron 3;
+    dictee.conf is not rewritten. Its entry is greyed too when this machine
+    cannot run it."""
+    combo.addItem("Nemotron 3 (8 max)", "nemotron3")
+    if not available:
+        combo.model().item(0).setEnabled(False)
+    combo.setToolTip(_tt(
+        "Moteur de séparation des locuteurs.\n"
+        "Nemotron 3 (NVIDIA) distingue jusqu'à 8 voix : il découpe "
+        "l'aperçu en direct par tours de parole, puis fait l'analyse "
+        "finale."))
+    i = combo.findData((saved or "").strip())
+    combo.setCurrentIndex(i if i >= 0 else 0)
+    combo.setEnabled(False)
 
 
 def _build_subprocess_env():
@@ -982,22 +1001,6 @@ class LivePreviewThread(QThread):
         self.preview.run()
 
 
-def _moss_available():
-    """Check if the MOSS one-pass engine is usable (its --check covers the
-    model, the native runtime and the python bindings). MOSS has no
-    streaming mode: it can only serve the FINAL analysis at Stop, never the
-    live preview."""
-    exe = shutil.which("dictee-moss-diarize")
-    if not exe:
-        return False
-    try:
-        return subprocess.run([exe, "--check"], stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL,
-                              timeout=10).returncode == 0
-    except Exception:
-        return False
-
-
 class SourceComboBox(QComboBox):
     """Audio-source combo that re-scans the system each time its dropdown opens,
     so apps/sources that appeared after the window opened show up without
@@ -1479,42 +1482,15 @@ class MeetingWindow(QWidget):
         model_row.addWidget(self._model_combo, 1)
         left_col.addLayout(model_row)
 
-        # Diarization engine selector: persisted in DICTEE_MEETING_DIAR_ENGINE.
-        # Nemotron 3 cuts the live preview by voices and runs the final
-        # analysis; MOSS only runs the final analysis (no streaming mode).
-        # Values saved by older versions (auto, multi, sortformer) fall back
-        # to Nemotron 3.
+        # Diarization engine: Nemotron 3 alone since MOSS left (1.4), shown
+        # greyed. See fill_diar_combo().
         diar_row = QHBoxLayout()
         diar_row.addWidget(QLabel("Diarisation :"))
         self._diar_combo = QComboBox()
-        for _lbl, _key, _ok in (
-                ("Nemotron 3 (8 max)", "nemotron3",
-                 _nemotron3_dir() is not None and bool(shutil.which("diarize-only"))),
-                ("MOSS (analyse finale seule)", "moss", _moss_available())):
-            self._diar_combo.addItem(_lbl, _key)
-            if not _ok:
-                self._diar_combo.model().item(
-                    self._diar_combo.count() - 1).setEnabled(False)
-        self._diar_combo.setToolTip(_tt(
-            "Moteur de séparation des locuteurs.\n"
-            "Nemotron 3 (NVIDIA) distingue jusqu'à 8 voix : il découpe "
-            "l'aperçu en direct par tours de parole, puis fait l'analyse "
-            "finale.\n"
-            "MOSS transcrit et identifie les locuteurs en une passe, avec "
-            "son propre moteur ASR : il ne sert QUE l'analyse finale au "
-            "Stop (pas de mode flux, donc l'aperçu live garde Nemotron 3 et "
-            "le modèle choisi ne sert qu'à l'aperçu)."))
-        _saved_diar = (_conf.get("DICTEE_MEETING_DIAR_ENGINE") or "nemotron3").strip()
-        _i = self._diar_combo.findData(_saved_diar)
-        if _i >= 0 and self._diar_combo.model().item(_i).isEnabled():
-            self._diar_combo.setCurrentIndex(_i)
-        self._diar_combo.currentIndexChanged.connect(
-            lambda _i: self._write_conf_key("DICTEE_MEETING_DIAR_ENGINE",
-                                            self._diar_combo.currentData()))
-        self._diar_combo.currentIndexChanged.connect(
-            lambda _i: self._sync_model_combo_for_diar())
+        fill_diar_combo(
+            self._diar_combo, _conf.get("DICTEE_MEETING_DIAR_ENGINE") or "",
+            _nemotron3_dir() is not None and bool(shutil.which("diarize-only")))
         diar_row.addWidget(self._diar_combo, 1)
-        self._sync_model_combo_for_diar()
         # Detection threshold, same scale as dictee-transcribe's slider
         # (50 % = engine default). Read when the live preview starts; moved
         # later, the meeting is analysed again (_preview_holds_meeting).
@@ -1536,10 +1512,17 @@ class MeetingWindow(QWidget):
                                          str(self._diar_slider.value())))
         diar_row.addWidget(self._diar_slider)
         diar_row.addWidget(self._diar_slider_val)
+        self._diar_slider.setToolTip(_tt(
+            "Seuil de détection de la parole.\n\n"
+            "← Plus bas : garde aussi les voix faibles ou lointaines, mais "
+            "peut prendre du bruit pour de la parole.\n"
+            "→ Plus haut : ne garde que la parole nette.\n"
+            "50 % convient dans la plupart des cas.\n\n"
+            "Si une même personne apparaît comme deux locuteurs différents, "
+            "ce curseur ne les regroupera pas.\n\n"
+            "Changé après le lancement de la réunion, il entraîne une "
+            "nouvelle analyse à l'ouverture."))
         left_col.addLayout(diar_row)
-        self._diar_combo.currentIndexChanged.connect(
-            lambda _i: self._sync_diar_slider())
-        self._sync_diar_slider()
 
         # "Add mic" toggle: when an app source is selected, also mix the
         # microphone with the app (two loopbacks, see _setup_mix_sink).
@@ -2160,36 +2143,6 @@ class MeetingWindow(QWidget):
             except OSError:
                 pass
         return out
-
-    def _sync_model_combo_for_diar(self):
-        """MOSS brings its own ASR: the model combo then only drives the
-        live preview, not the final transcript. Say so instead of letting
-        the user believe their model choice shapes the result."""
-        _moss = self._diar_combo.currentData() == "moss"
-        self._model_lbl.setText("Modèle (aperçu) :" if _moss else "Modèle :")
-        self._model_combo.setToolTip(_tt(
-            "Modèle ASR de l'APERÇU LIVE uniquement : MOSS transcrit le "
-            "fichier final avec son propre moteur."
-            if _moss else
-            "Modèle ASR pour cette réunion. La taille de Whisper-Rust suit "
-            "le choix fait dans dictee-setup."))
-
-    def _sync_diar_slider(self):
-        """MOSS has no speaker threshold: the slider is greyed with it."""
-        moss = self._diar_combo.currentData() == "moss"
-        self._diar_slider.setEnabled(not moss)
-        self._diar_slider_val.setEnabled(not moss)
-        self._diar_slider.setToolTip(_tt(
-            "MOSS n'utilise pas de seuil." if moss else
-            "Seuil de détection de la parole.\n\n"
-            "← Plus bas : garde aussi les voix faibles ou lointaines, mais "
-            "peut prendre du bruit pour de la parole.\n"
-            "→ Plus haut : ne garde que la parole nette.\n"
-            "50 % convient dans la plupart des cas.\n\n"
-            "Si une même personne apparaît comme deux locuteurs différents, "
-            "ce curseur ne les regroupera pas.\n\n"
-            "Changé après le lancement de la réunion, il entraîne une "
-            "nouvelle analyse à l'ouverture."))
 
     def _write_conf_key(self, key, value):
         """Replace-or-append a key in ~/.config/dictee.conf, no duplicate line."""
@@ -2919,13 +2872,9 @@ class MeetingWindow(QWidget):
 
         # Hand off to dictee-transcribe: with the live preview as the result
         # when it holds the whole meeting, else for a new analysis.
-        # --diar-engine carries the meeting's engine choice into it (before
-        # it existed, the combo only drove the live preview and
-        # dictee-transcribe silently reused its own persisted choice).
         try:
             subprocess.Popen(
                 analysis_command(self.audio_wav, self.transcript_path,
-                                 self._diar_combo.currentData(),
                                  self._model_combo.currentData(),
                                  self._preview_holds_meeting(),
                                  self._diar_slider.value()),

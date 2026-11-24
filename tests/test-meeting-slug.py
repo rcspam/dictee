@@ -32,25 +32,53 @@ def test_analysis_opens_the_live_preview_when_it_covers_the_meeting(tmp_path):
     preview.write_text("# Réunion\n\n[0.500s - 3.200s] Speaker 0: Bonjour.\n",
                        encoding="utf-8")
     # with the meeting's threshold, for an analysis the user runs again there
-    assert ml.analysis_command(audio, preview, "nemotron3", "whisper-rust", True, 70) == [
+    assert ml.analysis_command(audio, preview, "whisper-rust", True, 70) == [
         "dictee-transcribe", "--file", str(audio), "--transcript", str(preview),
         "--asr-model", "whisper-rust", "--sensitivity", "70"]
 
 
-def test_analysis_runs_again_for_moss_or_a_preview_with_holes(tmp_path):
+def test_analysis_runs_again_for_a_preview_with_holes(tmp_path):
     audio = tmp_path / "audio.wav"
     preview = tmp_path / "transcript-live.md"
     preview.write_text("[0.500s - 3.200s] Speaker 0: Bonjour.\n", encoding="utf-8")
     empty = tmp_path / "empty.md"
     empty.write_text("# Réunion\n\n", encoding="utf-8")
-    for transcript, engine, whole in ((preview, "moss", True),
-                                      (preview, "nemotron3", False),
-                                      (empty, "nemotron3", True),
-                                      (tmp_path / "missing.md", "nemotron3", True)):
-        assert ml.analysis_command(audio, transcript, engine, "canary", whole, 35) == [
+    for transcript, whole in ((preview, False),
+                              (empty, True),
+                              (tmp_path / "missing.md", True)):
+        assert ml.analysis_command(audio, transcript, "canary", whole, 35) == [
             "dictee-transcribe", "--file", str(audio), "--diarize",
-            "--diar-engine", engine, "--asr-model", "canary",
-            "--sensitivity", "35"], (transcript, engine, whole)
+            "--diar-engine", "nemotron3", "--asr-model", "canary",
+            "--sensitivity", "35"], (transcript, whole)
+
+
+def _diar_combo(saved, available=True):
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication, QComboBox
+    _diar_combo.app = QApplication.instance() or QApplication([])
+    combo = QComboBox()
+    ml.fill_diar_combo(combo, saved, available)
+    return combo
+
+
+def test_the_diarization_combo_holds_nemotron_3_alone_greyed():
+    combo = _diar_combo("nemotron3")
+    assert [combo.itemData(i) for i in range(combo.count())] == ["nemotron3"]
+    assert combo.currentData() == "nemotron3"
+    assert not combo.isEnabled()
+    assert "MOSS" not in combo.toolTip()
+
+
+def test_a_saved_moss_or_older_engine_falls_back_to_nemotron_3():
+    # MOSS left in 1.4: DICTEE_MEETING_DIAR_ENGINE=moss stays in dictee.conf
+    for saved in ("moss", "auto", "multi", "sortformer", ""):
+        assert _diar_combo(saved).currentData() == "nemotron3", saved
+
+
+def test_nemotron_3_missing_greys_its_entry():
+    combo = _diar_combo("nemotron3", available=False)
+    assert not combo.model().item(0).isEnabled()
 
 
 def test_analysis_runs_again_for_nemotron_3_5(tmp_path):
@@ -58,7 +86,7 @@ def test_analysis_runs_again_for_nemotron_3_5(tmp_path):
     audio = tmp_path / "audio.wav"
     preview = tmp_path / "transcript-live.md"
     preview.write_text("[0.500s - 3.200s] Speaker 0: Bonjour.\n", encoding="utf-8")
-    assert ml.analysis_command(audio, preview, "nemotron3", "nemotron", True, 50) == [
+    assert ml.analysis_command(audio, preview, "nemotron", True, 50) == [
         "dictee-transcribe", "--file", str(audio), "--diarize",
         "--diar-engine", "nemotron3", "--asr-model", "nemotron", "--sensitivity", "50"]
 
@@ -149,38 +177,6 @@ def test_the_preview_is_the_result_when_the_threshold_did_not_move():
 def test_a_threshold_moved_after_the_start_has_the_meeting_analysed_again():
     # the preview kept its starting threshold: the slider's is another result
     assert ml.MeetingWindow._preview_holds_meeting(_window(70, 50)) is False
-
-
-class _Widget:
-    def __init__(self):
-        self.enabled, self.tip = True, ""
-
-    def setEnabled(self, on):
-        self.enabled = on
-
-    def setToolTip(self, tip):
-        self.tip = tip
-
-
-def _threshold_row(engine):
-    from types import SimpleNamespace
-    return SimpleNamespace(_diar_combo=SimpleNamespace(currentData=lambda: engine),
-                           _diar_slider=_Widget(), _diar_slider_val=_Widget())
-
-
-def test_the_threshold_is_greyed_with_moss_which_has_none():
-    win = _threshold_row("moss")
-    ml.MeetingWindow._sync_diar_slider(win)
-    assert not win._diar_slider.enabled and not win._diar_slider_val.enabled
-    assert "MOSS" in win._diar_slider.tip
-
-
-def test_the_threshold_is_live_with_nemotron_3():
-    win = _threshold_row("nemotron3")
-    win._diar_slider.enabled = False      # MOSS was chosen before
-    ml.MeetingWindow._sync_diar_slider(win)
-    assert win._diar_slider.enabled and win._diar_slider_val.enabled
-    assert "MOSS" not in win._diar_slider.tip
 
 
 def test_only_a_meeting_folder_right_under_the_meetings_root_may_be_deleted(tmp_path, monkeypatch):
