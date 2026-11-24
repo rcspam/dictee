@@ -5793,3 +5793,30 @@ msgstr "Parakeet v3 (präzise)"
 
 msgid "Parakeet v3 (fast)"
 msgstr "Parakeet v3 (schnell)"
+
+msgid "Force CPU (no GPU)"
+msgstr "CPU erzwingen (keine GPU)"
+
+msgid "No NVIDIA GPU detected"
+msgstr "Keine NVIDIA-GPU erkannt"
+
+msgid "CPU package installed (no CUDA support)"
+msgstr "CPU-Paket installiert (keine CUDA-Unterstützung)"
+
+msgid "Vosk runs on CPU by design"
+msgstr "Vosk läuft konzeptbedingt auf der CPU"
+
+msgid "Parakeet INT8 is CPU-optimized (GPU is 5× slower)"
+msgstr "Parakeet INT8 ist CPU-optimiert (GPU ist 5× langsamer)"
+
+msgid "Force CPU (loses GPU acceleration)"
+msgstr "CPU erzwingen (verliert GPU-Beschleunigung)"
+
+msgid "Force CPU"
+msgstr "CPU erzwingen"
+
+msgid "GPU active"
+msgstr "GPU aktiv"
+
+msgid "GPU active (low VRAM)"
+msgstr "GPU aktiv (wenig VRAM)"

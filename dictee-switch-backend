@@ -24,6 +24,7 @@ usage() {
     echo "  short_text [true|false|toggle]  Toggle short-text fix (both pp_normal + pp_translate)"
     echo "  quant [fp32|int8|toggle]  Switch Parakeet model variant (restarts daemon)"
     echo "  parakeet <v3|ultra> <fp32|int8>  Switch Parakeet model and variant (restarts daemon)"
+    echo "  force_cpu [1|0|toggle]    Run the ASR on CPU even with a GPU (restarts daemon)"
     echo ""
     echo "ASR backends:      parakeet, canary, vosk, whisper"
     echo "Translate backends: google, bing, ollama, libretranslate"
@@ -349,6 +350,36 @@ quant)
     fi
     (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
     echo "Parakeet quant: $val"
+    ;;
+
+force_cpu)
+    # GPU/CPU preference for the ASR backends (DICTEE_FORCE_CPU=1|0), set by
+    # the tray and the plasmoid when the toggle is free. Restarts the active
+    # ASR service so the daemon picks the provider at load. Parakeet int8 runs
+    # on the CPU whatever this says (the daemon decides), so the UIs grey the
+    # toggle out there and never call this to mirror it.
+    val="${2:-toggle}"
+    case "$val" in
+        true|1) val="1" ;;
+        false|0) val="0" ;;
+        toggle)
+            set +eu; source "$CONF"; set -eu
+            case "${DICTEE_FORCE_CPU:-0}" in 1|true|yes) val="0" ;; *) val="1" ;; esac
+            ;;
+        *) echo "Error: force_cpu expects true, false, 1, 0 or toggle" >&2; usage ;;
+    esac
+    set_conf "DICTEE_FORCE_CPU" "$val"
+    _dbg "force_cpu: $val"
+    set +eu; source "$CONF"; set -eu
+    svc=$(asr_service "${DICTEE_ASR_BACKEND:-parakeet}")
+    systemctl --user restart "${svc}.service" 2>/dev/null || true
+    if [ "$val" = "1" ]; then
+        notify_dictee 0 cpu-symbolic "Force CPU: ON (GPU disabled, daemon restarting)"
+    else
+        notify_dictee 0 cpu-symbolic "Force CPU: OFF (GPU used if available, daemon restarting)"
+    fi
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+    echo "Force CPU: $val"
     ;;
 
 *) usage ;;

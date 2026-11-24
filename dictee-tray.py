@@ -291,6 +291,56 @@ def _asr_entry_available(backend, variant):
                for base in ("/usr/share/dictee", data_dir))
 
 
+def _detect_gpu_vram_gb():
+    """Total NVIDIA VRAM in GB, 0.0 without a GPU or nvidia-smi."""
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            mb = int(r.stdout.strip().split("\n")[0].split(",")[0].strip())
+            return round(mb / 1024, 1)
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
+        pass
+    return 0.0
+
+
+def _force_cpu_state(backend, parakeet_quant, force_cpu_raw, vram_gb, cuda_pkg):
+    """(checked, enabled, tooltip) of the Force CPU toggle.
+
+    Same rules as the GPU/CPU toggle of dictee-setup on this branch: when the
+    GPU can't be used (no NVIDIA GPU, CPU package, Vosk, or Parakeet int8,
+    which the daemon always runs on the CPU), the toggle shows CPU, greyed
+    out, and DICTEE_FORCE_CPU is left as it is: it also applies to the other
+    backends. Otherwise it shows and edits the stored preference."""
+    backend = (backend or "parakeet").lower()
+    if vram_gb <= 0:
+        return True, False, _("No NVIDIA GPU detected")
+    if not cuda_pkg:
+        return True, False, _("CPU package installed (no CUDA support)")
+    if backend == "vosk":
+        return True, False, _("Vosk runs on CPU by design")
+    if backend == "parakeet" and (parakeet_quant or "").lower() == "int8":
+        return True, False, _("Parakeet INT8 is CPU-optimized (GPU is 5× slower)")
+    forcing = (force_cpu_raw or "0").lower() in ("1", "true", "yes")
+    if forcing:
+        tip = _("Force CPU (loses GPU acceleration)") if vram_gb >= 4 else _("Force CPU")
+    else:
+        tip = _("GPU active") if vram_gb >= 4 else _("GPU active (low VRAM)")
+    return forcing, True, tip
+
+
+def _current_force_cpu_state():
+    return _force_cpu_state(
+        read_conf_value("DICTEE_ASR_BACKEND", "parakeet"),
+        read_conf_value("DICTEE_PARAKEET_QUANT", "fp32"),
+        read_conf_value("DICTEE_FORCE_CPU", "0"),
+        _detect_gpu_vram_gb(),
+        os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so"))
+
+
 def _asr_service_exists(key):
     """Check if an ASR backend is actually usable (binary+model/venv installed)."""
     data_dir = os.path.join(
@@ -683,6 +733,15 @@ class DicteeTrayAppIndicator:
         self.item_short_gtk.connect("toggled", self._on_short_toggled_gtk)
         self.menu.append(self.item_short_gtk)
 
+        # Force CPU toggle (all ASR backends); refreshed on every popup
+        self.item_force_cpu_gtk = Gtk.CheckMenuItem(label=_("Force CPU (no GPU)"))
+        _checked, _enabled, _tip = _current_force_cpu_state()
+        self.item_force_cpu_gtk.set_active(_checked)
+        self.item_force_cpu_gtk.set_sensitive(_enabled)
+        self.item_force_cpu_gtk.set_tooltip_text(_tip)
+        self.item_force_cpu_gtk.connect("toggled", self._on_force_cpu_toggled_gtk)
+        self.menu.append(self.item_force_cpu_gtk)
+
         self.menu.append(Gtk.SeparatorMenuItem())
 
         item_cheatsheet = Gtk.MenuItem(label=_("Toggle voice commands cheatsheet"))
@@ -732,6 +791,11 @@ class DicteeTrayAppIndicator:
             pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
             trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
             _set(self.item_short_gtk, pp_st or trpp_st, self._on_short_toggled_gtk)
+        if hasattr(self, "item_force_cpu_gtk"):
+            checked, enabled, tip = _current_force_cpu_state()
+            _set(self.item_force_cpu_gtk, checked, self._on_force_cpu_toggled_gtk)
+            self.item_force_cpu_gtk.set_sensitive(enabled)
+            self.item_force_cpu_gtk.set_tooltip_text(tip)
 
     def _on_daemon_toggle(self, _item):
         if self.state == "offline":
@@ -917,6 +981,15 @@ class DicteeTrayAppIndicator:
     def _on_short_toggled_gtk(self, item):
         val = "true" if item.get_active() else "false"
         subprocess.Popen(["dictee-switch-backend", "short_text", val])
+
+    def _on_force_cpu_toggled_gtk(self, item):
+        val = "1" if item.get_active() else "0"
+        subprocess.Popen(["dictee-switch-backend", "force_cpu", val])
+        # Greyed for 2 s: each toggle restarts the daemon
+        from gi.repository import GLib
+        item.set_sensitive(False)
+        GLib.timeout_add(2000, lambda i=item: (i.set_sensitive(True), False)[1])
+        GLib.timeout_add(2000, self._delayed_daemon_refresh)
 
     def _delayed_daemon_refresh(self):
         self._check_daemon()
@@ -1110,6 +1183,15 @@ class DicteeTrayQt:
             _("Enable short-text fix on both normal and translation pipelines."))
         self.action_short_qt.toggled.connect(self._on_short_toggled_qt)
 
+        # Force CPU toggle (all ASR backends); refreshed on every popup
+        self.action_force_cpu_qt = self.menu.addAction(_("Force CPU (no GPU)"))
+        self.action_force_cpu_qt.setCheckable(True)
+        _checked, _enabled, _tip = _current_force_cpu_state()
+        self.action_force_cpu_qt.setChecked(_checked)
+        self.action_force_cpu_qt.setEnabled(_enabled)
+        self.action_force_cpu_qt.setToolTip(_tip)
+        self.action_force_cpu_qt.toggled.connect(self._on_force_cpu_toggled_qt)
+
         self.menu.addSeparator()
         self.action_cheatsheet = self.menu.addAction(_("Toggle voice commands cheatsheet"))
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
@@ -1209,6 +1291,15 @@ class DicteeTrayQt:
         val = "true" if checked else "false"
         subprocess.Popen(["dictee-switch-backend", "short_text", val])
 
+    def _on_force_cpu_toggled_qt(self, checked):
+        val = "1" if checked else "0"
+        subprocess.Popen(["dictee-switch-backend", "force_cpu", val])
+        # Greyed for 2 s: each toggle restarts the daemon
+        from PyQt6.QtCore import QTimer
+        self.action_force_cpu_qt.setEnabled(False)
+        QTimer.singleShot(2000, lambda: self.action_force_cpu_qt.setEnabled(True))
+        QTimer.singleShot(2000, self._delayed_daemon_refresh)
+
     def _refresh_menu_toggles_qt(self):
         """Re-read dictee.conf and sync the 3 toggles (context, LLM, short-text).
 
@@ -1232,6 +1323,11 @@ class DicteeTrayQt:
             pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
             trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
             _set(self.action_short_qt, pp_st or trpp_st)
+        if hasattr(self, "action_force_cpu_qt"):
+            checked, enabled, tip = _current_force_cpu_state()
+            _set(self.action_force_cpu_qt, checked)
+            self.action_force_cpu_qt.setEnabled(enabled)
+            self.action_force_cpu_qt.setToolTip(tip)
 
     def _delayed_daemon_refresh(self):
         self._check_daemon()

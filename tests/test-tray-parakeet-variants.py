@@ -14,13 +14,14 @@ def _load_func(name):
     start = next(i for i, l in enumerate(lines) if l.startswith(f"def {name}("))
     end = next((j for j in range(start + 1, len(lines))
                 if lines[j].startswith(("def ", "class "))), len(lines))
-    ns = {}
+    ns = {"_": lambda s: s}   # gettext stand-in
     exec("".join(lines[start:end]), ns)
     return ns[name]
 
 
 switch_cmd = _load_func("_asr_switch_command")
 checked = _load_func("_asr_entry_checked")
+force_cpu = _load_func("_force_cpu_state")
 
 
 class SwitchCommandTests(unittest.TestCase):
@@ -59,6 +60,29 @@ class CheckedTests(unittest.TestCase):
     def test_other_backend(self):
         self.assertTrue(checked("vosk", None, "vosk", "v3", "fp32"))
         self.assertFalse(checked("parakeet", "v3:fp32", "vosk", "v3", "fp32"))
+
+
+class ForceCpuToggleTests(unittest.TestCase):
+    """(checked, enabled, tooltip); the toggle never writes DICTEE_FORCE_CPU
+    when it is greyed out, so a locked state must not depend on it."""
+
+    def test_parakeet_int8_locked_on_cpu_whatever_the_flag(self):
+        for fc in ("0", "1"):
+            c, e, _t = force_cpu("parakeet", "int8", fc, 8.0, True)
+            self.assertEqual((c, e), (True, False))
+
+    def test_parakeet_fp32_follows_the_flag(self):
+        self.assertEqual(force_cpu("parakeet", "fp32", "0", 8.0, True)[:2], (False, True))
+        self.assertEqual(force_cpu("parakeet", "fp32", "1", 8.0, True)[:2], (True, True))
+
+    def test_int8_quant_only_locks_parakeet(self):
+        # The Parakeet quant stays in the conf while Whisper is active
+        self.assertEqual(force_cpu("whisper", "int8", "0", 8.0, True)[:2], (False, True))
+
+    def test_vosk_no_gpu_and_cpu_package_are_locked(self):
+        self.assertEqual(force_cpu("vosk", "fp32", "0", 8.0, True)[:2], (True, False))
+        self.assertEqual(force_cpu("parakeet", "fp32", "0", 0.0, True)[:2], (True, False))
+        self.assertEqual(force_cpu("canary", "fp32", "0", 8.0, False)[:2], (True, False))
 
 
 if __name__ == "__main__":

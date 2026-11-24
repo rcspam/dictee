@@ -169,6 +169,15 @@ PlasmoidItem {
                     root.currentParakeetModel =
                         ((parts[11] || "").toLowerCase() === "ultra") ? "ultra" : "v3"
                 }
+                if (parts.length >= 13) {
+                    var fc = (parts[12] || "0").toLowerCase()
+                    root.forceCpuActive = (fc === "1" || fc === "true" || fc === "yes")
+                }
+            } else if (source === readGpuCmd) {
+                var glines = stdout.trim().split("\n")
+                var mb = parseInt(glines[0], 10)
+                root.gpuVramGb = isNaN(mb) ? 0.0 : Math.round(mb / 1024 * 10) / 10
+                root.cudaPkg = glines.indexOf("cuda") !== -1
             } else if (source.indexOf("dictee-translate-langs") !== -1) {
                 var langs = stdout.trim()
                 var newList = langs.length > 0 ? langs.split(",") : []
@@ -328,10 +337,37 @@ PlasmoidItem {
     property string currentLangTarget: "en"
     property var availableLangTarget: []
     property real backendUserChangeTime: 0  // timestamp of last user-initiated backend change
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT|$DICTEE_PP_SHORT_TEXT|$DICTEE_TRPP_SHORT_TEXT|$DICTEE_LLM_POSTPROCESS|$DICTEE_PARAKEET_QUANT|$DICTEE_PARAKEET_MODEL\"'"
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT|$DICTEE_PP_SHORT_TEXT|$DICTEE_TRPP_SHORT_TEXT|$DICTEE_LLM_POSTPROCESS|$DICTEE_PARAKEET_QUANT|$DICTEE_PARAKEET_MODEL|$DICTEE_FORCE_CPU\"'"
     // Parakeet variant from dictee.conf; absent keys = v3 / fp32 (the daemon's defaults)
     property string currentParakeetQuant: "fp32"
     property string currentParakeetModel: "v3"
+    property bool forceCpuActive: false   // DICTEE_FORCE_CPU=1
+    // GPU probe: VRAM in MB on the first line (empty without nvidia-smi),
+    // then "cuda" when the CUDA package's provider is installed.
+    property string readGpuCmd: "bash -c \"nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' '; " +
+        "[ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ] && echo cuda; true\""
+    property real gpuVramGb: 0.0
+    property bool cudaPkg: false
+    // Force CPU toggle: {checked, enabled, tooltip}. Same rules as
+    // _force_cpu_state() in dictee-tray.py (keep in sync) and the GPU/CPU
+    // toggle of dictee-setup: when the GPU can't be used (no NVIDIA GPU, CPU
+    // package, Vosk, Parakeet int8 which the daemon always runs on the CPU)
+    // the toggle shows CPU greyed out and DICTEE_FORCE_CPU is left alone,
+    // since it also applies to the other backends.
+    readonly property var forceCpuState: {
+        if (root.gpuVramGb <= 0)
+            return { checked: true, enabled: false, tooltip: i18n("No NVIDIA GPU detected") }
+        if (!root.cudaPkg)
+            return { checked: true, enabled: false, tooltip: i18n("CPU package installed (no CUDA support)") }
+        if (root.currentAsrBackend === "vosk")
+            return { checked: true, enabled: false, tooltip: i18n("Vosk runs on CPU by design") }
+        if (root.currentAsrBackend === "parakeet" && root.currentParakeetQuant === "int8")
+            return { checked: true, enabled: false, tooltip: i18n("Parakeet INT8 is CPU-optimized (GPU is 5× slower)") }
+        var tip = root.forceCpuActive
+            ? (root.gpuVramGb >= 4 ? i18n("Force CPU (loses GPU acceleration)") : i18n("Force CPU"))
+            : (root.gpuVramGb >= 4 ? i18n("GPU active") : i18n("GPU active (low VRAM)"))
+        return { checked: root.forceCpuActive, enabled: true, tooltip: tip }
+    }
     property string translateLangsCmd: "dictee-translate-langs"
     property bool audioContextEnabled: false
     property bool shortTextEnabled: true
@@ -391,6 +427,7 @@ PlasmoidItem {
     function refreshBackends() {
         executable.run(readConfCmd)
         executable.run(checkInstalledCmd)
+        executable.run(readGpuCmd)
         executable.run(micVolumeCmd)
         executable.run(listAudioSourcesCmd)
         // Refresh translate langs (always — combo may be empty on first open)

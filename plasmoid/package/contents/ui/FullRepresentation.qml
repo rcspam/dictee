@@ -864,6 +864,77 @@ RowLayout {
 
         Item { Layout.fillWidth: true }
 
+        // GPU / CPU toggle. root.forceCpuState decides the position and
+        // whether it can be changed (see main.qml).
+        PlasmaComponents.Label {
+            text: "GPU"
+            Layout.alignment: Qt.AlignVCenter
+            visible: fullRep.dicteeConfigured
+        }
+
+        QQC2.Switch {
+            id: forceCpuSwitch
+            visible: fullRep.dicteeConfigured
+            enabled: root.forceCpuState.enabled && !cooldownTimer.running
+            // CPU and GPU are two modes, not on/off: same colours in both
+            // positions (Plasma 6 ignores the palette on the native Switch).
+            indicator: Rectangle {
+                implicitWidth: Kirigami.Units.gridUnit * 2.2
+                implicitHeight: Kirigami.Units.gridUnit * 1.1
+                x: forceCpuSwitch.leftPadding
+                y: forceCpuSwitch.height / 2 - height / 2
+                radius: height / 2
+                color: Kirigami.Theme.alternateBackgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                border.width: 1
+                Rectangle {
+                    x: forceCpuSwitch.checked ? parent.width - width - 2 : 2
+                    y: 2
+                    width: parent.height - 4
+                    height: width
+                    radius: width / 2
+                    color: Kirigami.Theme.textColor
+                    Behavior on x { NumberAnimation { duration: 120; easing.type: Easing.InOutQuad } }
+                }
+            }
+            // Plasma 6 draws a disabled Switch like an enabled one: dim it
+            opacity: enabled ? 1.0 : 0.4
+            checked: root.forceCpuState.checked
+            property bool syncing: false
+            // A click assigns `checked` and breaks the binding: restore it
+            // whenever the state changes (otherwise switching to int8 would
+            // grey the toggle but leave it on GPU).
+            function _rebindChecked() {
+                syncing = true
+                checked = Qt.binding(function() { return root.forceCpuState.checked })
+                syncing = false
+            }
+            Connections {
+                target: root
+                function onForceCpuStateChanged() { forceCpuSwitch._rebindChecked() }
+            }
+            // Each toggle restarts the daemon: greyed for 2 s after a click
+            Timer {
+                id: cooldownTimer
+                interval: 2000
+                repeat: false
+            }
+            onToggled: {
+                if (syncing || !root.forceCpuState.enabled) return
+                executable.run("dictee-switch-backend force_cpu " + (checked ? "1" : "0"))
+                cooldownTimer.restart()
+            }
+            QQC2.ToolTip.text: root.forceCpuState.tooltip
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
+        }
+
+        PlasmaComponents.Label {
+            text: "CPU"
+            Layout.alignment: Qt.AlignVCenter
+            visible: fullRep.dicteeConfigured
+        }
+
         ThemedButton {
             text: i18n("Configure Dictée")
             icon.name: "configure"

@@ -42,5 +42,18 @@ else
 fi
 check DICTEE_PARAKEET_MODEL v3
 
+# force_cpu (tray / plasmoid GPU-CPU toggle): writes the flag and restarts the
+# ACTIVE backend's service only.
+printf 'DICTEE_ASR_BACKEND=whisper\nDICTEE_FORCE_CPU=0\n' > "$CONF"
+: > "$T/calls"
+"$REPO/dictee-switch-backend" force_cpu 1 >/dev/null 2>&1
+check DICTEE_FORCE_CPU 1
+grep -q 'systemctl --user restart dictee-whisper.service' "$T/calls" \
+    && echo "PASS active service restarted" || { echo "FAIL no whisper restart"; fail=1; }
+grep -q 'restart dictee.service' "$T/calls" \
+    && { echo "FAIL Parakeet restarted while Whisper is active"; fail=1; } || echo "PASS other services left alone"
+"$REPO/dictee-switch-backend" force_cpu toggle >/dev/null 2>&1
+check DICTEE_FORCE_CPU 0
+
 rm -rf "${T:?}"
 exit $fail
