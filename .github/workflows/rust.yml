@@ -188,6 +188,8 @@ jobs:
       run: bash tests/test-arch-depends.sh
     - name: Run tarball binary list tests (build-tar / install / uninstall)
       run: bash tests/test-tarball-bins.sh
+    - name: Run uninstall keeps-the-models test
+      run: bash tests/test-uninstall-keeps-models.sh
     - name: Run Arch GNOME tray install tests
       run: bash tests/test-install-arch-gnome.sh
     - name: Run dotoold not-started tests (all installers)
