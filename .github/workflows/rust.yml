@@ -138,6 +138,8 @@ jobs:
     # Fully faked evdev: no /dev/input, no /dev/uinput, no module needed, so it
     # runs before the setup below and never skips. Guards the rescan cost that
     # froze the keyboard for a second every 10 s (issue #33).
+    - name: Run setup running-version tests
+      run: python3 tests/test-setup-running-version.py
     - name: Run keyboard rescan tests
       run: python3 tests/test-keyboard-rescan.py
     - name: Run input group bridge tests

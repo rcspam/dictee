@@ -2530,6 +2530,42 @@ def model_is_installed(model):
     return os.path.isfile(sys_path) or os.path.isfile(user_path)
 
 
+def running_version(script_path=__file__,
+                    version_files=("/usr/share/dictee/VERSION",)):
+    """Version of the dictee-setup code that is running, for the About, the
+    welcome page and the update check.
+
+    In a source checkout (dev: /usr/bin/dictee-setup is a symlink into the
+    repository) /usr/share/dictee/VERSION belongs to whatever package was
+    installed last, so report the checkout's line instead: "<major>.<minor>
+    -devel" from Cargo.toml. An installed copy reads the VERSION file every
+    package target ships, then one next to the script; "dev" when none.
+    """
+    real_dir = os.path.dirname(os.path.realpath(script_path))
+    cargo = os.path.join(real_dir, "Cargo.toml")
+    if os.path.isfile(cargo):
+        try:
+            with open(cargo) as f:
+                for line in f:
+                    if line.startswith("version"):
+                        ver = line.split("=", 1)[1].strip().strip('"')
+                        major_minor = ".".join(ver.split("-")[0].split(".")[:2])
+                        if major_minor:
+                            return f"{major_minor}-devel"
+                        break
+        except OSError:
+            pass
+    for vpath in (*version_files, os.path.join(real_dir, "VERSION")):
+        if os.path.isfile(vpath):
+            try:
+                with open(vpath) as f:
+                    return f.read().strip()
+            except OSError:
+                pass
+            break
+    return "dev"
+
+
 # The four Parakeet-TDT variants (Ultra first: proposed first at install).
 PARAKEET_TDT_MODELS = [m for m in ASR_MODELS if m.get("quant") in ("fp32", "int8")]
 
@@ -7179,16 +7215,7 @@ class DicteeSetupDialog(QDialog):
         html_url = data.get("html_url") or "https://github.com/rcspam/dictee/releases"
 
         # Current version
-        _ver = "dev"
-        for _vpath in ("/usr/share/dictee/VERSION",
-                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")):
-            if os.path.isfile(_vpath):
-                try:
-                    with open(_vpath) as _f:
-                        _ver = _f.read().strip()
-                except OSError:
-                    pass
-                break
+        _ver = running_version()
 
         cur_t = self._parse_version(_ver)
         new_t = self._parse_version(latest)
@@ -7260,16 +7287,7 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(logo)
 
         # Version lookup (same logic as welcome wizard page)
-        _ver = "dev"
-        for _vpath in ("/usr/share/dictee/VERSION",
-                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")):
-            if os.path.isfile(_vpath):
-                try:
-                    with open(_vpath) as _f:
-                        _ver = _f.read().strip()
-                except OSError:
-                    pass
-                break
+        _ver = running_version()
 
         lbl_ver = QLabel(f"<b>v{_ver}</b>")
         lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -8266,16 +8284,7 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(lbl_logo)
 
         # Read version from installed VERSION file, fallback to dev
-        _ver = "dev"
-        for _vpath in ("/usr/share/dictee/VERSION",
-                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")):
-            if os.path.isfile(_vpath):
-                try:
-                    with open(_vpath) as _f:
-                        _ver = _f.read().strip()
-                except OSError:
-                    pass
-                break
+        _ver = running_version()
         lbl_ver = QLabel(f"v{_ver}")
         lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         _vf = QFont()
