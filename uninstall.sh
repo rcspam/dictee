@@ -241,9 +241,12 @@ if [[ $TARBALL_INSTALL -eq 1 ]]; then
                "$PREFIX/share/applications/dictee-tray.desktop"
     rm -f "$REAL_HOME/.local/share/applications/dictee-cheatsheet-toggle.desktop"
 
-    # Shared data + the text2num venv the installer builds there. install.sh
-    # hardcodes /usr/share/dictee even when PREFIX is /usr/local, so clear both.
-    sudo rm -rf /usr/share/dictee "$PREFIX/share/dictee"
+    # The text2num venv the installer builds (install.sh hardcodes
+    # /usr/share/dictee even when PREFIX is /usr/local). Only the venv: the
+    # ONNX models live in /usr/share/dictee too, and the model prompt below
+    # decides about them (--keep-models, default "no").
+    sudo rm -rf /usr/share/dictee/postprocess-env
+    [[ "$PREFIX" != "/usr" ]] && sudo rm -rf "$PREFIX/share/dictee"
 
     # systemd user units
     for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
