@@ -71,6 +71,7 @@ pub use error::{Error, Result};
 pub use execution::{best_provider, parakeet_provider, provider_status, ExecutionProvider, ModelConfig as ExecutionConfig};
 pub use parakeet::Parakeet;
 pub use parakeet_tdt::ParakeetTDT;
+pub use model_tdt::{parakeet_model_subdir, parakeet_model_subdir_from_env};
 pub use timestamps::TimestampMode;
 pub use transcriber::*;
 

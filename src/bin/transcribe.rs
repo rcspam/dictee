@@ -30,13 +30,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model_dir = if args.len() > 2 {
         args[2].clone()
     } else {
-        let user_dir = format!("{}/.local/share/dictee/tdt",
-            std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
-        let sys_dir = "/usr/share/dictee/tdt";
+        let subdir = parakeet_rs::parakeet_model_subdir_from_env();
+        let user_dir = format!("{}/.local/share/dictee/{}",
+            std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()), subdir);
+        let sys_dir = format!("/usr/share/dictee/{}", subdir);
         if std::path::Path::new(&user_dir).join("vocab.txt").exists() {
             user_dir
         } else {
-            sys_dir.to_string()
+            sys_dir
         }
     };
 

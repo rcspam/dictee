@@ -318,3 +318,41 @@ impl ParakeetTDTModel {
         Ok((tokens, frame_indices, durations))
     }
 }
+
+/// Model sub-directory (under `/usr/share/dictee` or `~/.local/share/dictee`) for the
+/// Parakeet variant named by `DICTEE_PARAKEET_MODEL`: `ultra` -> `tdt-ultra`, anything
+/// else (unset, `v3`, unknown) -> `tdt`. Pure helper, testable without the environment.
+pub fn parakeet_model_subdir(model: Option<&str>) -> &'static str {
+    match model.map(str::trim) {
+        Some(m) if m.eq_ignore_ascii_case("ultra") => "tdt-ultra",
+        _ => "tdt",
+    }
+}
+
+/// `parakeet_model_subdir` applied to `DICTEE_PARAKEET_MODEL`.
+pub fn parakeet_model_subdir_from_env() -> &'static str {
+    parakeet_model_subdir(std::env::var("DICTEE_PARAKEET_MODEL").ok().as_deref())
+}
+
+#[cfg(test)]
+mod subdir_tests {
+    use super::parakeet_model_subdir;
+
+    #[test]
+    fn unset_or_v3_is_tdt() {
+        assert_eq!(parakeet_model_subdir(None), "tdt");
+        assert_eq!(parakeet_model_subdir(Some("v3")), "tdt");
+        assert_eq!(parakeet_model_subdir(Some("")), "tdt");
+    }
+
+    #[test]
+    fn ultra_is_tdt_ultra_any_case() {
+        assert_eq!(parakeet_model_subdir(Some("ultra")), "tdt-ultra");
+        assert_eq!(parakeet_model_subdir(Some(" Ultra ")), "tdt-ultra");
+    }
+
+    #[test]
+    fn unknown_value_falls_back_to_tdt() {
+        assert_eq!(parakeet_model_subdir(Some("v4")), "tdt");
+    }
+}
