@@ -3787,6 +3787,13 @@ class TestTranslateThread(QThread):
             tempfile.gettempdir(),
             f"dictee-test-{os.getpid()}-{id(self)}.sock")
         env = {**os.environ, **self._wizard_env, "DICTEE_TRANSCRIBE_SOCKET": sock}
+        # ORT_DYLIB_PATH must be set for CUDA dictee builds (load-dynamic):
+        # without it the daemon can't dlopen libonnxruntime.so and fails to
+        # start (CPU builds link ORT statically and don't need it). The systemd
+        # service sets it via Environment=; this ad-hoc test daemon must too.
+        ort_lib = "/usr/lib/dictee/libonnxruntime.so"
+        if os.path.isfile(ort_lib):
+            env["ORT_DYLIB_PATH"] = ort_lib
         if backend in ("parakeet", "canary"):
             cmd = [daemon_bin, "--socket", sock]
             if self._model_dir:
@@ -4107,6 +4114,13 @@ class TestDicteeThread(QThread):
             tempfile.gettempdir(),
             f"dictee-test-{os.getpid()}-{id(self)}.sock")
         env = {**os.environ, **self._wizard_env, "DICTEE_TRANSCRIBE_SOCKET": sock}
+        # ORT_DYLIB_PATH must be set for CUDA dictee builds (load-dynamic):
+        # without it the daemon can't dlopen libonnxruntime.so and fails to
+        # start (CPU builds link ORT statically and don't need it). The systemd
+        # service sets it via Environment=; this ad-hoc test daemon must too.
+        ort_lib = "/usr/lib/dictee/libonnxruntime.so"
+        if os.path.isfile(ort_lib):
+            env["ORT_DYLIB_PATH"] = ort_lib
         if backend in ("parakeet", "canary"):
             cmd = [daemon_bin, "--socket", sock]
             if self._model_dir:
