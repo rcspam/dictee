@@ -195,18 +195,21 @@ def _ptt_label():
 
 
 # ASR backends shown in the tray menu.
-# Format: (menu_id, label_msgid, backend_key, quant)
-# - menu_id is unique per menu entry (Parakeet appears twice — one entry
-#   per quantization variant).
+# Format: (menu_id, label_msgid, backend_key, variant)
+# - menu_id is unique per menu entry (Parakeet appears four times — one entry
+#   per model and quantization).
 # - label_msgid is the English string passed through _() at menu build time.
 # - backend_key is what dictee-switch-backend expects (parakeet/canary/vosk/whisper/whisper-rust).
-# - quant is "fp32" or "int8" for Parakeet variants, None otherwise. When set,
-#   selecting this entry also triggers `dictee-switch-backend quant <quant>`.
+# - variant is "<model>:<quant>" for Parakeet ("ultra:int8", "v3:fp32"), None
+#   otherwise. When set, selecting this entry also triggers
+#   `dictee-switch-backend parakeet <model> <quant>` (see _asr_switch_command).
 # Note: label_msgid is NOT pre-translated at module load (gettext may not be
 # initialised yet). _() is called when the menu is constructed.
 ASR_BACKENDS = [
-    ("parakeet-fp32", N_("Parakeet (precise)"), "parakeet", "fp32"),
-    ("parakeet-int8", N_("Parakeet (fast)"),    "parakeet", "int8"),
+    ("parakeet-ultra-fp32", N_("Parakeet Ultra (precise)"), "parakeet", "ultra:fp32"),
+    ("parakeet-ultra-int8", N_("Parakeet Ultra (fast)"),    "parakeet", "ultra:int8"),
+    ("parakeet-fp32",       N_("Parakeet v3 (precise)"),    "parakeet", "v3:fp32"),
+    ("parakeet-int8",       N_("Parakeet v3 (fast)"),       "parakeet", "v3:int8"),
     ("canary",        "Canary",                  "canary",   None),
     ("vosk",          "Vosk",                    "vosk",     None),
     ("whisper",       "Whisper",                 "whisper",  None),
@@ -394,6 +397,59 @@ def _is_translate_enabled():
     return read_conf_value("DICTEE_TRANSLATE", "false").lower() == "true"
 
 
+def _asr_switch_command(backend, variant, current_backend, current_model, current_quant):
+    """Command that selects the menu entry (backend, variant), or None when it
+    is already the active one. A Parakeet variant goes through
+    `dictee-switch-backend parakeet <model> <quant>` (model and quant written
+    together, one daemon restart), chained before `asr` when the backend
+    changes too, so the daemon starts once with the right files."""
+    need_asr = current_backend != backend
+    need_variant = False
+    if variant:
+        model, _sep, quant = variant.partition(":")
+        need_variant = (model, quant) != (current_model, current_quant)
+    if need_variant and need_asr:
+        return ["bash", "-c",
+                f"dictee-switch-backend parakeet {model} {quant} && "
+                f"dictee-switch-backend asr {backend}"]
+    if need_variant:
+        return ["dictee-switch-backend", "parakeet", model, quant]
+    if need_asr:
+        return ["dictee-switch-backend", "asr", backend]
+    return None
+
+
+def _asr_entry_checked(backend, variant, current_backend, current_model, current_quant):
+    """Whether the menu entry (backend, variant) is the active one."""
+    if backend != current_backend:
+        return False
+    if variant:
+        return variant == f"{current_model}:{current_quant}"
+    return True
+
+
+def _current_parakeet_variant():
+    """(model, quant) of the Parakeet variant in dictee.conf, v3 / fp32
+    when absent (the daemon's defaults)."""
+    model = read_conf_value("DICTEE_PARAKEET_MODEL", "v3").lower()
+    quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+    return ("ultra" if model == "ultra" else "v3",
+            "int8" if quant == "int8" else "fp32")
+
+
+def _asr_entry_available(backend, variant):
+    """_asr_service_exists, narrowed to the entry's Parakeet model."""
+    if not _asr_service_exists(backend):
+        return False
+    if not variant:
+        return True
+    sub = "tdt-ultra" if variant.startswith("ultra:") else "tdt"
+    data_dir = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "dictee")
+    return any(os.path.isdir(os.path.join(base, sub))
+               for base in ("/usr/share/dictee", data_dir))
+
+
 def _asr_service_exists(key):
     """Check if an ASR backend is actually usable (binary+model/venv installed)."""
     data_dir = os.path.join(
@@ -403,7 +459,10 @@ def _asr_service_exists(key):
     if key == "parakeet":
         if not shutil.which("transcribe-daemon"):
             return False
-        return os.path.isdir("/usr/share/dictee/tdt") or os.path.isdir(os.path.join(data_dir, "tdt"))
+        # v3 (tdt) or Ultra (tdt-ultra): either one makes Parakeet usable
+        return any(os.path.isdir(os.path.join(base, sub))
+                   for base in ("/usr/share/dictee", data_dir)
+                   for sub in ("tdt", "tdt-ultra"))
     if key == "canary":
         # Canary uses the same Rust binary as Parakeet (transcribe-daemon --canary).
         # Canary is a heavy encoder — only usable with CUDA acceleration in
@@ -1082,19 +1141,10 @@ class DicteeTrayAppIndicator:
             # puis quant restart avec les bonnes valeurs → load GPU transitoire
             # visible dans nvtop). Cf. fix 2026-05-21.
             current_b = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
-            current_q = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
-            need_quant = quant in ("fp32", "int8") and current_q != quant
-            need_asr = current_b != backend
-            if need_quant and need_asr:
-                subprocess.Popen([
-                    "bash", "-c",
-                    f"dictee-switch-backend quant {quant} && "
-                    f"dictee-switch-backend asr {backend}"
-                ])
-            elif need_asr:
-                subprocess.Popen(["dictee-switch-backend", "asr", backend])
-            elif need_quant:
-                subprocess.Popen(["dictee-switch-backend", "quant", quant])
+            cmd = _asr_switch_command(backend, quant, current_b,
+                                      *_current_parakeet_variant())
+            if cmd:
+                subprocess.Popen(cmd)
             from gi.repository import GLib
             GLib.timeout_add(2000, self._delayed_daemon_refresh)
 
@@ -1146,19 +1196,13 @@ class DicteeTrayAppIndicator:
 
     def _refresh_backend_radios(self):
         current_asr = _current_asr_backend()
-        current_quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
-        if current_quant not in ("fp32", "int8"):
-            current_quant = "fp32"
+        current_variant = _current_parakeet_variant()
         for menu_id, backend, quant, item in self._asr_radios:
             item.handler_block_by_func(self._on_asr_toggled)
             # An entry is "active" when its backend matches AND (for Parakeet)
-            # its quant matches the conf value.
-            if quant in ("fp32", "int8"):
-                active = (backend == current_asr and quant == current_quant)
-            else:
-                active = (backend == current_asr)
-            item.set_active(active)
-            item.set_sensitive(_asr_service_exists(backend))
+            # its model and quant match the conf values.
+            item.set_active(_asr_entry_checked(backend, quant, current_asr, *current_variant))
+            item.set_sensitive(_asr_entry_available(backend, quant))
             item.set_label(_asr_menu_label(menu_id))
             item.handler_unblock_by_func(self._on_asr_toggled)
 
@@ -1458,19 +1502,9 @@ class DicteeTrayQt:
         # nécessaires, chaîner `quant && asr` séquentiellement (cf. fix
         # plasmoid 2026-05-21 — évite double load du daemon Parakeet).
         current_b = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
-        current_q = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
-        need_quant = quant in ("fp32", "int8") and current_q != quant
-        need_asr = current_b != backend
-        if need_quant and need_asr:
-            subprocess.Popen([
-                "bash", "-c",
-                f"dictee-switch-backend quant {quant} && "
-                f"dictee-switch-backend asr {backend}"
-            ])
-        elif need_asr:
-            subprocess.Popen(["dictee-switch-backend", "asr", backend])
-        elif need_quant:
-            subprocess.Popen(["dictee-switch-backend", "quant", quant])
+        cmd = _asr_switch_command(backend, quant, current_b, *_current_parakeet_variant())
+        if cmd:
+            subprocess.Popen(cmd)
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(2000, self._delayed_daemon_refresh)
 
@@ -1549,19 +1583,13 @@ class DicteeTrayQt:
 
     def _refresh_asr_menu(self):
         current = _current_asr_backend()
-        current_quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
-        if current_quant not in ("fp32", "int8"):
-            current_quant = "fp32"
+        current_variant = _current_parakeet_variant()
         for menu_id, action in self._asr_actions.items():
             data = action.data() or {}
             backend = data.get("backend", menu_id)
-            quant = data.get("quant")
-            if quant in ("fp32", "int8"):
-                checked = (backend == current and quant == current_quant)
-            else:
-                checked = (backend == current)
-            action.setChecked(checked)
-            action.setEnabled(_asr_service_exists(backend))
+            quant = data.get("quant")   # Parakeet variant "<model>:<quant>"
+            action.setChecked(_asr_entry_checked(backend, quant, current, *current_variant))
+            action.setEnabled(_asr_entry_available(backend, quant))
             action.setText(_asr_menu_label(menu_id))
 
     def _refresh_trans_menu(self):

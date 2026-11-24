@@ -4951,3 +4951,40 @@ msgstr "Nach Updates für animation-speech suchen"
 #, python-brace-format
 msgid "animation-speech {version} is already the latest release."
 msgstr "animation-speech {version} ist bereits die neueste Version."
+
+#: dictee-setup.py
+msgid "Parakeet v3 trained further by Moondream (~2.5 GB). Better French, no switch to English on hard recordings. Same speed and memory as v3."
+msgstr "Parakeet v3, von Moondream weiter trainiert (~2,5 GB). Besseres Französisch, kein Wechsel ins Englische bei schwierigen Aufnahmen. Gleiche Geschwindigkeit und gleicher Speicherbedarf wie v3."
+
+#: dictee-setup.py
+#, no-python-format
+msgid "<b>Parakeet Ultra 0.6B — FP32</b><br><br>Parakeet-TDT 0.6B v3 trained further by Moondream: same architecture, same 25 languages, same speed and memory, different weights.<br><br>Measured on French: 5.5 % word error rate on read speech (7.7 % for v3), and no switch to English on the recordings where v3 drifts (meetings, phone audio, long memos).<br><br>License CC-BY-4.0 (Moondream)."
+msgstr "<b>Parakeet Ultra 0.6B : FP32</b><br><br>Parakeet-TDT 0.6B v3, von Moondream weiter trainiert: gleiche Architektur, gleiche 25 Sprachen, gleiche Geschwindigkeit und gleicher Speicherbedarf, andere Gewichte.<br><br>Gemessen auf Französisch: 5,5 % Wortfehlerrate bei vorgelesener Sprache (7,7 % bei v3) und kein Wechsel ins Englische bei den Aufnahmen, bei denen v3 abdriftet (Besprechungen, Telefonaudio, lange Sprachnotizen).<br><br>Lizenz CC-BY-4.0 (Moondream)."
+
+#: dictee-setup.py
+msgid "Quantized Ultra (~650 MB). Always runs on the CPU: pick it when there is no GPU, or too little VRAM for FP32."
+msgstr "Quantisiertes Ultra (~650 MB). Läuft immer auf der CPU: wählen, wenn keine GPU vorhanden ist oder zu wenig VRAM für FP32."
+
+#: dictee-setup.py
+msgid "<b>Parakeet Ultra 0.6B — int8 quantized</b><br><br>Same model as Ultra FP32 with 8-bit quantized weights: 650 MB on disk / RAM instead of 2.4 GB, faster on CPU.<br><br>Measured on French: same accuracy as v3 int8 on read speech, and no switch to English where v3 int8 drifts (meetings).<br><br><b>Always runs on the CPU</b>: int8 is not usable on the CUDA GPU runtime."
+msgstr "<b>Parakeet Ultra 0.6B : int8-quantisiert</b><br><br>Dasselbe Modell wie Ultra FP32 mit 8-Bit-quantisierten Gewichten: 650 MB auf der Festplatte / im RAM statt 2,4 GB, schneller auf der CPU.<br><br>Gemessen auf Französisch: gleiche Genauigkeit wie v3 int8 bei vorgelesener Sprache und kein Wechsel ins Englische, wo v3 int8 abdriftet (Besprechungen).<br><br><b>Läuft immer auf der CPU</b>: int8 ist mit der CUDA-GPU-Laufzeit nicht nutzbar."
+
+#: dictee-setup.py
+msgid "Active model:"
+msgstr "Aktives Modell:"
+
+#: dictee-tray.py
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (präzise)"
+
+#: dictee-tray.py
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (schnell)"
+
+#: dictee-tray.py
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (präzise)"
+
+#: dictee-tray.py
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (schnell)"

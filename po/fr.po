@@ -4948,3 +4948,40 @@ msgstr "Rechercher une mise à jour d'animation-speech"
 #, python-brace-format
 msgid "animation-speech {version} is already the latest release."
 msgstr "animation-speech {version} est déjà la dernière version publiée."
+
+#: dictee-setup.py
+msgid "Parakeet v3 trained further by Moondream (~2.5 GB). Better French, no switch to English on hard recordings. Same speed and memory as v3."
+msgstr "Parakeet v3 entraîné plus longtemps par Moondream (~2,5 Go). Meilleur en français, ne bascule pas en anglais sur les enregistrements difficiles. Même vitesse et même mémoire que v3."
+
+#: dictee-setup.py
+#, no-python-format
+msgid "<b>Parakeet Ultra 0.6B — FP32</b><br><br>Parakeet-TDT 0.6B v3 trained further by Moondream: same architecture, same 25 languages, same speed and memory, different weights.<br><br>Measured on French: 5.5 % word error rate on read speech (7.7 % for v3), and no switch to English on the recordings where v3 drifts (meetings, phone audio, long memos).<br><br>License CC-BY-4.0 (Moondream)."
+msgstr "<b>Parakeet Ultra 0.6B : FP32</b><br><br>Parakeet-TDT 0.6B v3 entraîné plus longtemps par Moondream : même architecture, mêmes 25 langues, même vitesse et même mémoire, poids différents.<br><br>Mesuré en français : 5,5 % de mots erronés sur de la lecture (7,7 % pour v3), et aucun passage à l'anglais sur les enregistrements où v3 dérive (réunions, son de téléphone, longs mémos).<br><br>Licence CC-BY-4.0 (Moondream)."
+
+#: dictee-setup.py
+msgid "Quantized Ultra (~650 MB). Always runs on the CPU: pick it when there is no GPU, or too little VRAM for FP32."
+msgstr "Ultra quantifié (~650 Mo). Tourne toujours sur le CPU : à choisir sans GPU, ou avec trop peu de VRAM pour le FP32."
+
+#: dictee-setup.py
+msgid "<b>Parakeet Ultra 0.6B — int8 quantized</b><br><br>Same model as Ultra FP32 with 8-bit quantized weights: 650 MB on disk / RAM instead of 2.4 GB, faster on CPU.<br><br>Measured on French: same accuracy as v3 int8 on read speech, and no switch to English where v3 int8 drifts (meetings).<br><br><b>Always runs on the CPU</b>: int8 is not usable on the CUDA GPU runtime."
+msgstr "<b>Parakeet Ultra 0.6B : quantifié int8</b><br><br>Même modèle qu'Ultra FP32 avec des poids quantifiés sur 8 bits : 650 Mo sur disque / en RAM au lieu de 2,4 Go, plus rapide sur CPU.<br><br>Mesuré en français : même précision que v3 int8 sur de la lecture, et aucun passage à l'anglais là où v3 int8 dérive (réunions).<br><br><b>Tourne toujours sur le CPU</b> : l'int8 n'est pas utilisable avec le runtime GPU CUDA."
+
+#: dictee-setup.py
+msgid "Active model:"
+msgstr "Modèle actif :"
+
+#: dictee-tray.py
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (précis)"
+
+#: dictee-tray.py
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (rapide)"
+
+#: dictee-tray.py
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (précis)"
+
+#: dictee-tray.py
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (rapide)"

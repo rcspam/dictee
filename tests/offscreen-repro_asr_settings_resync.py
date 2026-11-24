@@ -100,17 +100,21 @@ settle()
 assert dlg.cmb_asr_backend.currentData() == "parakeet", "did not switch back"
 print("PASS asr backend follows back")
 
-# 2. Parakeet variant. The toggle is greyed out when both variants are not
-#    installed; in that case the value is not ours to force.
-if dlg.tgl_quant.isEnabled():
-    before = dlg.tgl_quant.isChecked()
-    set_conf("DICTEE_PARAKEET_QUANT", "fp32" if before else "int8")
+# 2. Parakeet variant. The combo is greyed out when fewer than two variants
+#    are installed; in that case the value is not ours to force.
+cmb = dlg.cmb_parakeet_variant
+if cmb.isEnabled():
+    before = cmb.currentData()
+    target = next(cmb.itemData(i) for i in range(cmb.count())
+                  if cmb.itemData(i) != before)
+    model, _, quant = target.partition(":")
+    set_conf("DICTEE_PARAKEET_MODEL", model)
+    set_conf("DICTEE_PARAKEET_QUANT", quant)
     settle()
-    assert dlg.tgl_quant.isChecked() is (not before), \
-        f"quant toggle still {dlg.tgl_quant.isChecked()}"
-    print(f"PASS parakeet variant follows ({before} -> {not before})")
+    assert cmb.currentData() == target, f"variant combo still {cmb.currentData()}"
+    print(f"PASS parakeet variant follows ({before} -> {target})")
 else:
-    print("SKIP parakeet variant: toggle disabled (both variants not installed)")
+    print("SKIP parakeet variant: combo disabled (fewer than two variants installed)")
 
 # 3. Force CPU. What Apply writes is _force_cpu_pref, so that is what must move.
 before_pref = dlg._force_cpu_pref

@@ -596,6 +596,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 trpp_states=None, trpp_short_text_max=3,
                 cheatsheet_mod="", cheatsheet_key_seq="",
                 parakeet_quant=None,
+                parakeet_model=None,
                 force_cpu=None,
                 meeting_dir="",
                 meeting_always_on_top=True,
@@ -639,6 +640,10 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         # untouched (preserve existing user value or comment).
         **({"DICTEE_PARAKEET_QUANT": parakeet_quant}
            if parakeet_quant in ("fp32", "int8") else {}),
+        # Parakeet model (v3 | ultra), read by parakeet_model_subdir in Rust.
+        # None = leave dictee.conf untouched.
+        **({"DICTEE_PARAKEET_MODEL": parakeet_model}
+           if parakeet_model in ("v3", "ultra") else {}),
         # Force CPU mode (disables GPU acceleration for all ASR backends).
         # We write "1" or "0" explicitly so the daemon restart detects the
         # change. Rust side parses both truthy ("1"/"true"/"yes") and falsy.
@@ -2288,10 +2293,70 @@ NEMOTRON_HF = "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotro
 NEMOTRON3_DIAR_HF = ("https://huggingface.co/onnx-community/Nemotron-3-Diarization-ONNX"
                      "/resolve/353b6f8ad2cac3580e982d7fbdf0a010786b0406/onnx")
 KYUTAI_HF = "https://huggingface.co/kyutai/stt-1b-en_fr-candle/resolve/main"
+# Parakeet Ultra (Moondream, CC-BY-4.0): Parakeet v3 trained further. ONNX export
+# with the same graphs, file names and vocab.txt as istupakov's v3 export, pinned
+# to the revision measured on 2026-11-23.
+PARAKEET_ULTRA_HF = ("https://huggingface.co/Masterx/parakeet-tdt-0.6b-ultra-onnx"
+                     "/resolve/99b09f030a5a6efeaa13cf2cf54592100ce2c3f1")
 
 ASR_MODELS = [
     {
+        "id": "tdt-ultra",
+        "name": "Parakeet Ultra 0.6B (FP32)",
+        "variant": "ultra",
+        "desc": _("Parakeet v3 trained further by Moondream (~2.5 GB). Better "
+                  "French, no switch to English on hard recordings. Same "
+                  "speed and memory as v3."),
+        "help": _(
+            # xgettext: no-python-format
+            "<b>Parakeet Ultra 0.6B — FP32</b><br><br>"
+            "Parakeet-TDT 0.6B v3 trained further by Moondream: same "
+            "architecture, same 25 languages, same speed and memory, "
+            "different weights.<br><br>"
+            "Measured on French: 5.5 % word error rate on read speech "
+            "(7.7 % for v3), and no switch to English on the recordings "
+            "where v3 drifts (meetings, phone audio, long memos).<br><br>"
+            "License CC-BY-4.0 (Moondream)."
+        ),
+        "dir": os.path.join(MODEL_DIR, "tdt-ultra"),
+        "check_file": "encoder-model.onnx",
+        "quant": "fp32",
+        "files": [
+            (f"{PARAKEET_ULTRA_HF}/encoder-model.onnx", "encoder-model.onnx"),
+            (f"{PARAKEET_ULTRA_HF}/encoder-model.onnx.data", "encoder-model.onnx.data"),
+            (f"{PARAKEET_ULTRA_HF}/decoder_joint-model.onnx", "decoder_joint-model.onnx"),
+            (f"{PARAKEET_ULTRA_HF}/vocab.txt", "vocab.txt"),
+        ],
+        "required": False,
+    },
+    {
+        "id": "tdt-ultra-int8",
+        "name": "Parakeet Ultra 0.6B (int8)",
+        "variant": "ultra",
+        "desc": _("Quantized Ultra (~650 MB). Always runs on the CPU: pick it "
+                  "when there is no GPU, or too little VRAM for FP32."),
+        "help": _(
+            "<b>Parakeet Ultra 0.6B — int8 quantized</b><br><br>"
+            "Same model as Ultra FP32 with 8-bit quantized weights: "
+            "650 MB on disk / RAM instead of 2.4 GB, faster on CPU.<br><br>"
+            "Measured on French: same accuracy as v3 int8 on read speech, "
+            "and no switch to English where v3 int8 drifts (meetings).<br><br>"
+            "<b>Always runs on the CPU</b>: int8 is not usable on the CUDA GPU "
+            "runtime."
+        ),
+        "dir": os.path.join(MODEL_DIR, "tdt-ultra"),  # same dir as Ultra FP32
+        "check_file": "encoder-model.int8.onnx",
+        "quant": "int8",
+        "files": [
+            (f"{PARAKEET_ULTRA_HF}/encoder-model.int8.onnx", "encoder-model.int8.onnx"),
+            (f"{PARAKEET_ULTRA_HF}/decoder_joint-model.int8.onnx", "decoder_joint-model.int8.onnx"),
+            (f"{PARAKEET_ULTRA_HF}/vocab.txt", "vocab.txt"),
+        ],
+        "required": False,
+    },
+    {
         "id": "tdt",
+        "variant": "v3",
         "name": "Parakeet-TDT 0.6B v3 (FP32)",
         "desc": _("Full precision (~2.5 GB). 25 languages with native "
                   "punctuation and capitalization. Best accuracy, "
@@ -2320,6 +2385,7 @@ ASR_MODELS = [
     {
         "id": "tdt-int8",
         "name": "Parakeet-TDT 0.6B v3 (int8)",
+        "variant": "v3",
         # xgettext: no-python-format
         # (the literal "% f" reads as a %f spec to xgettext, which then
         # rejects any translation whose own "% x" isn't one — see e09525f)
@@ -2462,6 +2528,59 @@ def model_is_installed(model):
         model["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR),
         model["check_file"])
     return os.path.isfile(sys_path) or os.path.isfile(user_path)
+
+
+# The four Parakeet-TDT variants (Ultra first: proposed first at install).
+PARAKEET_TDT_MODELS = [m for m in ASR_MODELS if m.get("quant") in ("fp32", "int8")]
+
+
+def parakeet_variant_key(model):
+    """'ultra:int8', 'v3:fp32'... the pair written to dictee.conf as
+    DICTEE_PARAKEET_MODEL / DICTEE_PARAKEET_QUANT."""
+    return f"{model.get('variant', 'v3')}:{model['quant']}"
+
+
+def parakeet_variant_title(model):
+    """Short title of a TDT variant: 'Ultra FP32', 'v3 INT8'."""
+    prefix = "Ultra" if model.get("variant") == "ultra" else "v3"
+    return f"{prefix} {model['quant'].upper()}"
+
+
+def suggest_parakeet_variant():
+    """Recommended variant key: Ultra, quantization from the hardware."""
+    return f"ultra:{suggest_parakeet_quant()}"
+
+
+def parakeet_recommended_suffix():
+    """' Ultra (Int8)' / ' Ultra (FP32)', appended to 'Parakeet' in labels
+    that show the hardware recommendation."""
+    return " Ultra (Int8)" if suggest_parakeet_quant() == "int8" else " Ultra (FP32)"
+
+
+def resolve_parakeet_variant(conf_model, conf_quant, installed_keys, recommended_key):
+    """Variant key shown as active in the setup.
+
+    conf_model / conf_quant are DICTEE_PARAKEET_MODEL / DICTEE_PARAKEET_QUANT
+    ('' when absent). A conf with a quant but no model key predates Ultra: it
+    runs v3 (the daemon's default), so it stays v3. A conf with neither takes
+    the recommendation. When the resolved variant is not installed, the first
+    installed one wins (Ultra first); with nothing installed, the conf choice
+    is kept so the downloads page shows what will be used."""
+    rec_model, rec_quant = recommended_key.split(":")
+    raw_model = (conf_model or "").strip().lower()
+    raw_quant = (conf_quant or "").strip().lower()
+    model = raw_model if raw_model in ("v3", "ultra") else ""
+    quant = raw_quant if raw_quant in ("fp32", "int8") else ""
+    if not model and not quant:
+        key = recommended_key
+    else:
+        if not model:
+            # No model key next to a valid quant: a pre-Ultra conf, i.e. v3
+            model = "v3" if quant and not raw_model else rec_model
+        key = f"{model}:{quant or rec_quant}"
+    if installed_keys and key not in installed_keys:
+        key = installed_keys[0]
+    return key
 
 
 def any_parakeet_installed():
@@ -6291,16 +6410,21 @@ class DicteeSetupDialog(QDialog):
             self._dirty = _was_dirty
             _dbg_setup(f"_resync_external_toggles: asr backend -> {asr}")
 
-        # Parakeet variant. Greyed out when both variants are not installed —
-        # its state is then imposed by _refresh_tdt_active_badge, not ours to
-        # force. Done before Force CPU: flipping it re-pins that toggle.
-        quant_int8 = (fresh.get("DICTEE_PARAKEET_QUANT", "fp32") or "fp32").strip() == "int8"
-        tgl_q = getattr(self, "tgl_quant", None)
-        if tgl_q is not None and tgl_q.isEnabled() and tgl_q.isChecked() != quant_int8:
-            _was_dirty = self._dirty
-            tgl_q.setChecked(quant_int8)
-            self._dirty = _was_dirty
-            _dbg_setup(f"_resync_external_toggles: parakeet quant int8={quant_int8}")
+        # Parakeet variant. Greyed out when fewer than two variants are
+        # installed: its state is then imposed by the installed files, not
+        # ours to force. Done before Force CPU: changing it re-pins that toggle.
+        cmb_pv = getattr(self, "cmb_parakeet_variant", None)
+        if cmb_pv is not None and cmb_pv.isEnabled():
+            _installed = [cmb_pv.itemData(i) for i in range(cmb_pv.count())]
+            _key = resolve_parakeet_variant(
+                fresh.get("DICTEE_PARAKEET_MODEL", ""),
+                fresh.get("DICTEE_PARAKEET_QUANT", ""),
+                _installed, suggest_parakeet_variant())
+            if cmb_pv.currentData() != _key and cmb_pv.findData(_key) >= 0:
+                _was_dirty = self._dirty
+                cmb_pv.setCurrentIndex(cmb_pv.findData(_key))
+                self._dirty = _was_dirty
+                _dbg_setup(f"_resync_external_toggles: parakeet variant -> {_key}")
 
         # Force CPU. _on_apply writes _force_cpu_pref, NOT the toggle state,
         # and _on_force_cpu_toggled only records the preference while the
@@ -8211,11 +8335,11 @@ class DicteeSetupDialog(QDialog):
         is_kde = de_type == "kde"
 
         backend = self._get_recommended_backend(ram_gb, gpu_total)
-        backend_label = {"parakeet": "Parakeet-TDT v3", "canary": "Canary 1B v2",
+        backend_label = {"parakeet": "Parakeet", "canary": "Canary 1B v2",
                          "whisper": "faster-whisper", "vosk": "Vosk"}.get(backend, backend)
         # Parakeet's recommended quantization is hardware-dependent — show it.
         if backend == "parakeet":
-            backend_label += " (Int8)" if suggest_parakeet_quant() == "int8" else " (FP32)"
+            backend_label += parakeet_recommended_suffix()
         cuda_suffix = ""
         if backend in ("parakeet", "canary", "whisper") and gpu_total >= 4:
             cuda_suffix = " " + _("with CUDA")
@@ -8529,13 +8653,13 @@ class DicteeSetupDialog(QDialog):
         else:
             hw_lines.append(_("No dedicated GPU"))
 
-        rec_names = {"parakeet": "Parakeet-TDT", "vosk": "Vosk",
+        rec_names = {"parakeet": "Parakeet", "vosk": "Vosk",
                      "whisper": "faster-whisper", "canary": "Canary 1B v2"}
         rec_label = rec_names[recommended]
         # For Parakeet the recommended quantization is hardware-dependent
         # (int8 on CPU / low VRAM, FP32 on a ≥4 GB GPU) — surface it here too.
         if recommended == "parakeet":
-            rec_label += " (Int8)" if suggest_parakeet_quant() == "int8" else " (FP32)"
+            rec_label += parakeet_recommended_suffix()
         hw_lines.append("")
         hw_lines.append(_("Recommended") + " : <b>" + rec_label + "</b>")
 
@@ -8554,7 +8678,7 @@ class DicteeSetupDialog(QDialog):
 
         # Backend cards with bullet-point advantages
         backends = [
-            ("parakeet", "Parakeet-TDT 0.6B v3", [
+            ("parakeet", "Parakeet-TDT 0.6B", [
                 _("25 languages (FR, EN, DE, ES, IT, PT...)"),
                 _("Excellent transcription quality (WER ~8% FR, ~2% EN)"),
                 _("Runs on CPU or GPU (GPU 5x faster)"),
@@ -9328,7 +9452,7 @@ class DicteeSetupDialog(QDialog):
         # right after the model name (int8 on CPU / low VRAM, FP32 on ≥4 GB GPU).
         title_name = name
         if backend_id == "parakeet":
-            title_name += " (Int8)" if suggest_parakeet_quant() == "int8" else " (FP32)"
+            title_name += parakeet_recommended_suffix()
         lbl_title = QLabel(f"<b style='font-size: 13pt;'>{title_name}</b>")
         title_row.addWidget(lbl_title)
         title_row.addStretch()
@@ -9603,17 +9727,18 @@ class DicteeSetupDialog(QDialog):
         # that both combos exist and the dictation key has been read.
         self._refresh_shortcut_combos_labels()
 
-    def _make_model_label_html(self, model, active_quant, recommended_quant):
+    def _make_model_label_html(self, model, active_key, recommended_key):
         """Generate two-line HTML for a model entry:
-          - Line 1: "FP32" or "INT8" (or model name for non-TDT) — bold + ★ Recommended badge
+          - Line 1: "Ultra FP32", "v3 INT8"... (or model name for non-TDT) — bold + ★ Recommended badge
           - Line 2: description in smaller font
-        Non-active TDT variant is rendered greyed out (color: #888) on both lines."""
+        Non-active TDT variant is rendered greyed out (color: #888) on both lines.
+        active_key / recommended_key are variant keys ("ultra:int8")."""
         model_quant = model.get("quant")  # "fp32", "int8", or None
 
-        # Title line: variant code in uppercase for TDT, or full model name otherwise
+        # Title line: variant title for TDT, or full model name otherwise
         if model_quant:
-            title = model_quant.upper()  # "FP32" or "INT8"
-            is_active = (model_quant == active_quant)
+            title = parakeet_variant_title(model)
+            is_active = (parakeet_variant_key(model) == active_key)
             inactive_color = " color:#888;" if not is_active else ""
         else:
             title = model["name"]
@@ -9625,7 +9750,7 @@ class DicteeSetupDialog(QDialog):
         # the user has toggled away from the recommendation. Keeps the whole row
         # visually coherent (no orange highlight floating on a greyed block).
         badge_html = ""
-        if model_quant and model_quant == recommended_quant:
+        if model_quant and parakeet_variant_key(model) == recommended_key:
             badge_color = "#d8a000" if is_active else "#888"
             badge_html = (
                 f" <span style='color:{badge_color}; font-size:10pt; font-weight:bold;'>★ "
@@ -9707,14 +9832,14 @@ class DicteeSetupDialog(QDialog):
         runs on CPU). Cosmetic only: the stored preference (_force_cpu_pref)
         is preserved, so other backends (Whisper/Canary) keep their GPU
         setting and switching back to FP32 restores the toggle. Called at
-        build time, whenever the int8/FP32 toggle flips, and whenever the
+        build time, whenever the Parakeet variant changes, and whenever the
         ASR backend changes."""
         if not hasattr(self, 'tgl_force_cpu'):
             return
         total_vram, _free = get_gpu_vram_gb()
         cuda_pkg = os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so")
         gpu_present = total_vram > 0 and cuda_pkg
-        int8_active = hasattr(self, 'tgl_quant') and self.tgl_quant.isChecked()
+        int8_active = self._parakeet_active_key().endswith(":int8")
         backend = (self.cmb_asr_backend.currentData()
                    if hasattr(self, 'cmb_asr_backend') else "parakeet") or "parakeet"
 
@@ -9766,7 +9891,7 @@ class DicteeSetupDialog(QDialog):
             widget.setGraphicsEffect(effect)
 
     def _refresh_tdt_active_badge(self):
-        """Live-update TDT model rows when the toggle flips:
+        """Live-update TDT model rows when the active variant changes:
         - Selected variant: full opacity, normal colour text
         - Other variant: container faded to opacity 0.45 (label + buttons
           + progress all greyed together via QGraphicsOpacityEffect)
@@ -9774,16 +9899,13 @@ class DicteeSetupDialog(QDialog):
         Buttons stay functionally clickable (the user can still re-install
         or delete the non-active variant) but the whole block reads as
         secondary, matching the toggle position. Called by
-        ToggleSwitch.toggled — no need to wait for Apply."""
-        if not hasattr(self, 'tgl_quant'):
+        the variant combo — no need to wait for Apply."""
+        if not hasattr(self, 'cmb_parakeet_variant'):
             return
-        new_active = "int8" if self.tgl_quant.isChecked() else "fp32"
-        recommended = suggest_parakeet_quant()
-        for model in ASR_MODELS:
-            model_quant = model.get("quant")
-            if model_quant not in ("fp32", "int8"):
-                continue
-            is_active = (model_quant == new_active)
+        new_active = self._parakeet_active_key()
+        recommended = suggest_parakeet_variant()
+        for model in PARAKEET_TDT_MODELS:
+            is_active = (parakeet_variant_key(model) == new_active)
             widgets = self._model_widgets.get(model["id"])
             if not widgets:
                 continue
@@ -9796,43 +9918,52 @@ class DicteeSetupDialog(QDialog):
             if container is not None:
                 self._apply_block_opacity(container, 1.0 if is_active else 0.45)
 
-    def _refresh_quant_toggle_state(self):
-        """Re-evaluate the int8/FP32 toggle's enabled state after a model
-        download finishes or a variant is deleted. The toggle is only
-        meaningful when BOTH variants are installed; otherwise the active
-        variant is auto-resolved and the toggle stays disabled. Without this,
-        the toggle keeps the state it had at page-build time (e.g. greyed out
-        right after installing int8) until the setup window is reopened."""
-        if not hasattr(self, 'tgl_quant'):
-            return
-        fp32_installed = model_is_installed(ASR_MODELS[0])
-        int8_installed = (
-            len(ASR_MODELS) > 1 and ASR_MODELS[1].get("quant") == "int8"
-            and model_is_installed(ASR_MODELS[1])
-        )
-        both_installed = fp32_installed and int8_installed
-        self.tgl_quant.setEnabled(both_installed)
-        # When only one variant is present, force the toggle to reflect it.
-        # Block signals: this programmatic sync must not mark the form dirty.
-        if fp32_installed and not int8_installed:
-            self.tgl_quant.blockSignals(True)
-            self.tgl_quant.setChecked(False)
-            self.tgl_quant.blockSignals(False)
-        elif int8_installed and not fp32_installed:
-            self.tgl_quant.blockSignals(True)
-            self.tgl_quant.setChecked(True)
-            self.tgl_quant.blockSignals(False)
+    def _parakeet_active_key(self):
+        """Variant key selected in the Parakeet combo ("ultra:int8"...), or
+        "" before the combo exists."""
+        cmb = getattr(self, "cmb_parakeet_variant", None)
+        return (cmb.currentData() or "") if cmb is not None else ""
 
-    def _build_model_row(self, layout, model, active_quant=None,
-                         recommended_quant=None):
+    def _fill_parakeet_variant_combo(self, active_key):
+        """(Re)list the installed TDT variants in the combo and select
+        active_key, or the first installed one when it is missing. With no
+        variant installed, the combo shows active_key alone. Enabled only
+        when there is a choice. Signals blocked: a programmatic refill must
+        not mark the form dirty."""
+        cmb = self.cmb_parakeet_variant
+        installed = [m for m in PARAKEET_TDT_MODELS if model_is_installed(m)]
+        shown = installed or [m for m in PARAKEET_TDT_MODELS
+                              if parakeet_variant_key(m) == active_key]
+        cmb.blockSignals(True)
+        cmb.clear()
+        for m in shown:
+            cmb.addItem(parakeet_variant_title(m), parakeet_variant_key(m))
+        idx = cmb.findData(active_key)
+        cmb.setCurrentIndex(idx if idx >= 0 else 0)
+        cmb.setEnabled(len(installed) > 1)
+        cmb.blockSignals(False)
+
+    def _refresh_quant_toggle_state(self):
+        """Re-list the installed Parakeet variants after a model download
+        finishes or a variant is deleted. Without this, the combo keeps the
+        list it had at page-build time (e.g. no Ultra right after installing
+        it) until the setup window is reopened."""
+        if not hasattr(self, 'cmb_parakeet_variant'):
+            return
+        self._fill_parakeet_variant_combo(self._parakeet_active_key())
+        self._refresh_tdt_active_badge()
+        self._refresh_force_cpu_toggle_state()
+
+    def _build_model_row(self, layout, model, active_key=None,
+                         recommended_key=None):
         """Build a model row inside its own container widget. The container
         is needed so we can apply a QGraphicsOpacityEffect to grey out the
         entire block (label + buttons + progress) when the variant is
         non-active. setStyleSheet on individual buttons doesn't visibly
         grey them on KDE/Plasma styles, hence the container approach.
 
-        active_quant / recommended_quant only matter for the TDT variants
-        (badge + greyout); non-TDT models pass None safely."""
+        active_key / recommended_key (variant keys, "ultra:int8") only matter
+        for the TDT variants (badge + greyout); non-TDT models pass None safely."""
         installed = model_is_installed(model)
 
         container = QWidget()
@@ -9840,7 +9971,7 @@ class DicteeSetupDialog(QDialog):
         container_lay.setContentsMargins(0, 0, 0, 0)
         container_lay.setSpacing(4)
 
-        lbl_desc = QLabel(self._make_model_label_html(model, active_quant, recommended_quant))
+        lbl_desc = QLabel(self._make_model_label_html(model, active_key, recommended_key))
         lbl_desc.setWordWrap(True)
         container_lay.addWidget(lbl_desc)
 
@@ -9880,7 +10011,7 @@ class DicteeSetupDialog(QDialog):
         }
         # Apply initial opacity if this TDT variant is not active
         model_quant = model.get("quant")
-        if model_quant in ("fp32", "int8") and model_quant != active_quant:
+        if model_quant in ("fp32", "int8") and parakeet_variant_key(model) != active_key:
             self._apply_block_opacity(container, 0.45)
 
     def _build_parakeet_options(self, parent_layout, include_diarization=True):
@@ -9908,13 +10039,16 @@ class DicteeSetupDialog(QDialog):
         lay_outer.setSpacing(8)
 
         # Hardware-aware recommendation + currently active variant
-        recommended_quant = suggest_parakeet_quant()
-        active_quant = (self.conf.get("DICTEE_PARAKEET_QUANT") or recommended_quant).lower()
-        if active_quant not in ("fp32", "int8"):
-            active_quant = recommended_quant
+        recommended_key = suggest_parakeet_variant()
+        installed_keys = [parakeet_variant_key(m) for m in PARAKEET_TDT_MODELS
+                          if model_is_installed(m)]
+        active_key = resolve_parakeet_variant(
+            self.conf.get("DICTEE_PARAKEET_MODEL", ""),
+            self.conf.get("DICTEE_PARAKEET_QUANT", ""),
+            installed_keys, recommended_key)
 
         def _build_model_row(layout, model):
-            self._build_model_row(layout, model, active_quant, recommended_quant)
+            self._build_model_row(layout, model, active_key, recommended_key)
 
         # === Parakeet group box (no subtitle — the ASR backend combobox already
         # identifies the model family). Just "Parakeet TDT" as section anchor. ===
@@ -9923,40 +10057,23 @@ class DicteeSetupDialog(QDialog):
         parakeet_lay.setContentsMargins(12, 12, 12, 10)
         parakeet_lay.setSpacing(6)
 
-        # TDT FP32 + int8 rows
-        for model in [m for m in ASR_MODELS if m.get("quant") in ("fp32", "int8")]:
+        # Ultra FP32 / INT8, then v3 FP32 / INT8
+        for model in PARAKEET_TDT_MODELS:
             _build_model_row(parakeet_lay, model)
 
-        # Active variant toggle (int8 / FP32) — int8 first per user UX preference
-        fp32_installed = model_is_installed(ASR_MODELS[0])
-        int8_installed = (
-            len(ASR_MODELS) > 1 and ASR_MODELS[1].get("quant") == "int8"
-            and model_is_installed(ASR_MODELS[1])
-        )
-
-        # Toggle switch centered horizontally: "FP32 [━━●] INT8".
-        # Variants above are greyed out when not selected, so the toggle state
-        # is visually obvious without a header label.
-        toggle_row = QHBoxLayout()
-        toggle_row.setContentsMargins(0, 6, 0, 0)
-        toggle_row.addStretch()  # left padding to center
-        toggle_row.addWidget(QLabel("FP32"))
-
-        self.tgl_quant = ToggleSwitch("")
-        self.tgl_quant.setChecked(active_quant == "int8")
-        # Enable only if BOTH variants are installed; otherwise auto-resolved + disabled
-        both_installed = fp32_installed and int8_installed
-        self.tgl_quant.setEnabled(both_installed)
-        if fp32_installed and not int8_installed:
-            self.tgl_quant.setChecked(False)
-        elif int8_installed and not fp32_installed:
-            self.tgl_quant.setChecked(True)
-        self.tgl_quant.toggled.connect(self._refresh_tdt_active_badge)
-        toggle_row.addWidget(self.tgl_quant)
-
-        toggle_row.addWidget(QLabel("INT8"))
-        toggle_row.addStretch()  # right padding to center
-        parakeet_lay.addLayout(toggle_row)
+        # Active variant: a combo of the installed variants, centered. Rows
+        # above are greyed out when not selected.
+        variant_row = QHBoxLayout()
+        variant_row.setContentsMargins(0, 6, 0, 0)
+        variant_row.addStretch()
+        variant_row.addWidget(QLabel(_("Active model:")))
+        self.cmb_parakeet_variant = QComboBox()
+        self._fill_parakeet_variant_combo(active_key)
+        self.cmb_parakeet_variant.currentIndexChanged.connect(
+            self._refresh_tdt_active_badge)
+        variant_row.addWidget(self.cmb_parakeet_variant)
+        variant_row.addStretch()
+        parakeet_lay.addLayout(variant_row)
 
         # Set the hardware-reason as tooltip on the recommended variant's
         # description label (visible on hover, keeps the UI compact).
@@ -9969,8 +10086,8 @@ class DicteeSetupDialog(QDialog):
         else:
             # xgettext: no-python-format
             reason = _("No GPU detected — int8 is ~34 % faster on CPU (AVX-VNNI)")
-        for model in ASR_MODELS:
-            if model.get("quant") == recommended_quant:
+        for model in PARAKEET_TDT_MODELS:
+            if parakeet_variant_key(model) == recommended_key:
                 widgets = self._model_widgets.get(model["id"])
                 if widgets and widgets.get("desc_label"):
                     widgets["desc_label"].setToolTip(reason)
@@ -10009,10 +10126,11 @@ class DicteeSetupDialog(QDialog):
         self._lbl_force_cpu_warning.setWordWrap(True)
         self._lbl_force_cpu_warning.setStyleSheet("QLabel { padding-left: 4px; }")
         perf_lay.addWidget(self._lbl_force_cpu_warning)
-        # Flipping the int8/FP32 toggle changes whether the GPU is usable, so
-        # re-evaluate the GPU/CPU toggle's locked state when it does.
-        if hasattr(self, 'tgl_quant'):
-            self.tgl_quant.toggled.connect(self._refresh_force_cpu_toggle_state)
+        # Picking an int8 or FP32 variant changes whether the GPU is usable,
+        # so re-evaluate the GPU/CPU toggle's locked state when it changes.
+        if hasattr(self, 'cmb_parakeet_variant'):
+            self.cmb_parakeet_variant.currentIndexChanged.connect(
+                self._refresh_force_cpu_toggle_state)
         # Initial render (greys + shows CPU when the GPU can't be used)
         self._refresh_force_cpu_toggle_state()
 
@@ -18824,7 +18942,7 @@ class DicteeSetupDialog(QDialog):
             # A TDT variant just appeared: re-enable the int8/FP32 toggle if
             # both variants are now installed (otherwise it stays greyed out
             # until the window is reopened).
-            if mid in ("tdt", "tdt-int8"):
+            if any(m["id"] == mid for m in PARAKEET_TDT_MODELS):
                 self._refresh_quant_toggle_state()
         else:
             self._update_venv_button(w["button"], model["name"], False)
@@ -18872,7 +18990,7 @@ class DicteeSetupDialog(QDialog):
         w["btn_delete"].setVisible(False)
         # A TDT variant was removed: a single remaining variant must be
         # auto-resolved and the toggle disabled.
-        if mid in ("tdt", "tdt-int8"):
+        if any(m["id"] == mid for m in PARAKEET_TDT_MODELS):
             self._refresh_quant_toggle_state()
 
     # -- Installation venv ASR --
@@ -20325,7 +20443,7 @@ class DicteeSetupDialog(QDialog):
                      "DICTEE_WHISPER_RUST_MODEL", "DICTEE_WHISPER_RUST_GGML",
                      "DICTEE_WHISPER_LANG", "DICTEE_VOSK_MODEL",
                      "DICTEE_AUDIO_SOURCE", "DICTEE_PARAKEET_QUANT",
-                     "DICTEE_FORCE_CPU")
+                     "DICTEE_PARAKEET_MODEL", "DICTEE_FORCE_CPU")
         try:
             if os.path.isfile(CONF_PATH):
                 with open(CONF_PATH) as _f:
@@ -20599,13 +20717,13 @@ class DicteeSetupDialog(QDialog):
                     trpp_short_text_max=(
                         self.cmb_trpp_short_text_max.currentData()
                         if hasattr(self, 'cmb_trpp_short_text_max') else 3) or 3,
+                    # Always read the combo (even with a single installed
+                    # variant) so DICTEE_PARAKEET_MODEL / _QUANT are written to
+                    # dictee.conf and the daemon loads that variant on restart.
                     parakeet_quant=(
-                        # Always read the toggle's state (even if auto-resolved
-                        # to a single installed variant) so DICTEE_PARAKEET_QUANT
-                        # is written to dictee.conf and the daemon picks the
-                        # correct variant on restart.
-                        ("int8" if self.tgl_quant.isChecked() else "fp32")
-                        if hasattr(self, 'tgl_quant') else None),
+                        self._parakeet_active_key().partition(":")[2] or None),
+                    parakeet_model=(
+                        self._parakeet_active_key().partition(":")[0] or None),
                     force_cpu=(
                         self._force_cpu_pref
                         if hasattr(self, 'tgl_force_cpu') else None),
@@ -20764,10 +20882,9 @@ class DicteeSetupDialog(QDialog):
         # Include DICTEE_PARAKEET_QUANT and DICTEE_FORCE_CPU so toggling either
         # triggers a daemon restart (otherwise the daemon keeps the old model
         # / mode and the env var change has no visible effect).
-        _new_parakeet_quant = (
-            ("int8" if self.tgl_quant.isChecked() else "fp32")
-            if hasattr(self, 'tgl_quant') else ""
-        )
+        # No `_` target here: it would shadow gettext in the whole method.
+        _new_parakeet_model, _sep, _new_parakeet_quant = (
+            self._parakeet_active_key().partition(":"))
         _new_force_cpu = (
             ("1" if self._force_cpu_pref else "0")
             if hasattr(self, 'tgl_force_cpu') else ""
@@ -20781,19 +20898,23 @@ class DicteeSetupDialog(QDialog):
             "DICTEE_VOSK_MODEL": vosk_model,
             "DICTEE_AUDIO_SOURCE": str(audio_source),
             "DICTEE_PARAKEET_QUANT": _new_parakeet_quant,
+            "DICTEE_PARAKEET_MODEL": _new_parakeet_model,
             "DICTEE_FORCE_CPU": _new_force_cpu,
         }
         _old_asr_normalized = {k: _old_asr.get(k, "") for k in _new_asr}
         _asr_changed = _new_asr != _old_asr_normalized
-        # When ONLY the Parakeet variant flipped (int8 <-> fp32) and Parakeet
-        # is the active backend, route the restart through dictee-switch-backend
-        # so the user gets a "Parakeet model: int8/fp32" notification. The conf
+        # When the Parakeet variant changed (model v3 <-> Ultra, or quant
+        # int8 <-> fp32) and Parakeet is the active backend, route the restart
+        # through `dictee-switch-backend parakeet`, as the plasmoid and the tray
+        # do: one restart and a "Parakeet model: ..." notification. The conf
         # is already saved by save_config() above, so the wrapper's set_conf is
         # idempotent here.
         _quant_changed = (
             asr_backend == "parakeet"
             and _new_parakeet_quant in ("fp32", "int8")
-            and _old_asr.get("DICTEE_PARAKEET_QUANT", "") != _new_parakeet_quant
+            and _new_parakeet_model in ("v3", "ultra")
+            and (_old_asr.get("DICTEE_PARAKEET_QUANT", "") != _new_parakeet_quant
+                 or (_old_asr.get("DICTEE_PARAKEET_MODEL", "") or "v3") != _new_parakeet_model)
         )
         # Also restart if the service isn't running yet (first-install path)
         _active_running = subprocess.run(
@@ -20806,7 +20927,7 @@ class DicteeSetupDialog(QDialog):
                 from PyQt6.QtWidgets import QApplication
                 _switch_bin = shutil.which("dictee-switch-backend")
                 _restart_cmd = (
-                    [_switch_bin, "quant", _new_parakeet_quant]
+                    [_switch_bin, "parakeet", _new_parakeet_model, _new_parakeet_quant]
                     if (_quant_changed and _switch_bin)
                     else ["systemctl", "--user", "restart", active_svc]
                 )
