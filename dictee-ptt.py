@@ -252,25 +252,48 @@ def has_input_group():
     return gid in set(os.getgroups()) | {os.getgid(), os.getegid()}
 
 
-def input_group_bridge(has_group=None, which=None, newgrp_help=None):
+def user_in_input_group():
+    """True when the group database lists the user in input, effective or
+    not (sg / newgrp can only hand over a group the user belongs to; for
+    anyone else sg asks for the group password, #39). True when the lookup
+    fails, so the bridge is still tried."""
+    import grp
+    import pwd
+    try:
+        gid = grp.getgrnam("input").gr_gid
+    except KeyError:
+        return False
+    try:
+        pw = pwd.getpwuid(os.getuid())
+        return gid in os.getgrouplist(pw.pw_name, pw.pw_gid)
+    except (KeyError, OSError):
+        return True
+
+
+def input_group_bridge(has_group=None, which=None, newgrp_help=None, in_group_db=None):
     """Command prefix that runs a command with the input group.
 
     [] when the group is already effective, ["sg", "input", "-c"] where sg
     exists, ["newgrp", "input", "-c"] when newgrp documents -c (util-linux),
-    None when nothing can bridge the gap (a logout is then the only way).
+    None when nothing can bridge the gap: the user is not in input at all
+    (usermod needed), or neither tool is there (a logout is the only way).
     The lookups are parameters so the decision is testable without a system.
     """
     import shutil
     if has_group is None:
         has_group = has_input_group()
+    if has_group:
+        return []
+    if in_group_db is None:
+        in_group_db = user_in_input_group()
+    if not in_group_db:
+        return None
     if which is None:
         which = shutil.which
     if newgrp_help is None:
         def newgrp_help():
             return subprocess.run(["newgrp", "--help"], capture_output=True,
                                   text=True, timeout=5).stdout
-    if has_group:
-        return []
     if which("sg"):
         return ["sg", "input", "-c"]
     if which("newgrp"):
@@ -295,8 +318,12 @@ def reexec_with_input_group():
         return
     bridge = input_group_bridge()
     if bridge is None:
-        print("[ptt] user not in group 'input' for this session and neither sg "
-              "nor newgrp -c is available: log out and back in", flush=True)
+        if not user_in_input_group():
+            print("[ptt] user not in group 'input': run `sudo usermod -aG input "
+                  "$USER`, then log out and back in", flush=True)
+        else:
+            print("[ptt] user not in group 'input' for this session and neither sg "
+                  "nor newgrp -c is available: log out and back in", flush=True)
         return
     if not bridge:
         return

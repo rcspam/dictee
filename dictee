@@ -364,11 +364,16 @@ fi
 # hard-coded; Arch dropped /usr/bin/sg from shadow 4.20.0.arch1-1 (#35), and
 # ships util-linux's newgrp, which takes `-c <command>` (shadow's newgrp, on
 # Debian/Ubuntu/Fedora, does not, but those still have sg). Decide once at
-# startup. Prints the wrapper prefix, empty when the group is already there,
-# "none" when nothing can bridge it (the caller warns: logout needed).
+# startup. Prints the wrapper prefix: empty when uinput is already writable
+# (the group is effective, or an ACL such as logind's uaccess grants it, #39),
+# "nogroup" when the user is not in `input` at all (no bridge can help: sg
+# would ask for the group password), "none" when nothing can bridge it (the
+# caller warns: logout needed).
 _dotool_group_bridge() {
-    if id -nG 2>/dev/null | grep -qw input; then
+    if [ -w "${_UINPUT_NODE:-/dev/uinput}" ] || id -nG 2>/dev/null | grep -qw input; then
         echo ""
+    elif ! id -nG "$(id -un 2>/dev/null)" 2>/dev/null | grep -qw input; then
+        echo "nogroup"
     elif command -v sg >/dev/null 2>&1; then
         echo "sg input -c"
     elif command -v newgrp >/dev/null 2>&1 && newgrp --help 2>&1 | grep -q -- '-c'; then
@@ -382,6 +387,10 @@ if [[ "$_DOTOOL_WRAP" == "none" ]]; then
     _DOTOOL_WRAP=""
     _dbg "dotool: input group missing and neither sg nor newgrp -c available; typing will fail until the next login"
     notify_dictee_async 0 dialog-warning-symbolic "Push-to-talk : déconnectez-vous et reconnectez-vous (groupe input)" 2>/dev/null || true
+elif [[ "$_DOTOOL_WRAP" == "nogroup" ]]; then
+    _DOTOOL_WRAP=""
+    _dbg "dotool: /dev/uinput not writable and user not in group input; typing will fail"
+    notify_dictee_async 0 dialog-warning-symbolic "Frappe impossible : ajoutez-vous au groupe input (sudo usermod -aG input \$USER)" 2>/dev/null || true
 fi
 
 # Run dotool with stdin from the caller, through the group bridge when one is

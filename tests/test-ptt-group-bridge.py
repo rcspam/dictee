@@ -43,37 +43,50 @@ class BridgeTests(unittest.TestCase):
 
     def test_debian_fedora_use_sg(self):
         self.assertEqual(
-            mod.input_group_bridge(has_group=False, which=which_of("sg", "newgrp"),
+            mod.input_group_bridge(has_group=False, in_group_db=True, which=which_of("sg", "newgrp"),
                                    newgrp_help=lambda: SHADOW_NEWGRP_HELP),
             ["sg", "input", "-c"])
 
     def test_arch_uses_util_linux_newgrp(self):
         self.assertEqual(
-            mod.input_group_bridge(has_group=False, which=which_of("newgrp"),
+            mod.input_group_bridge(has_group=False, in_group_db=True, which=which_of("newgrp"),
                                    newgrp_help=lambda: UTIL_LINUX_NEWGRP_HELP),
             ["newgrp", "input", "-c"])
 
     def test_sg_wins_over_newgrp_when_both_work(self):
         self.assertEqual(
-            mod.input_group_bridge(has_group=False, which=which_of("sg", "newgrp"),
+            mod.input_group_bridge(has_group=False, in_group_db=True, which=which_of("sg", "newgrp"),
                                    newgrp_help=lambda: UTIL_LINUX_NEWGRP_HELP),
             ["sg", "input", "-c"])
 
     def test_shadow_newgrp_without_sg_is_no_bridge(self):
         self.assertIsNone(
-            mod.input_group_bridge(has_group=False, which=which_of("newgrp"),
+            mod.input_group_bridge(has_group=False, in_group_db=True, which=which_of("newgrp"),
                                    newgrp_help=lambda: SHADOW_NEWGRP_HELP))
 
     def test_nothing_installed_is_no_bridge(self):
         self.assertIsNone(
-            mod.input_group_bridge(has_group=False, which=which_of(),
+            mod.input_group_bridge(has_group=False, in_group_db=True, which=which_of(),
                                    newgrp_help=lambda: ""))
 
     def test_newgrp_help_failure_is_no_bridge(self):
         def boom():
             raise OSError("no newgrp")
         self.assertIsNone(
-            mod.input_group_bridge(has_group=False, which=which_of("newgrp"), newgrp_help=boom))
+            mod.input_group_bridge(has_group=False, in_group_db=True, which=which_of("newgrp"), newgrp_help=boom))
+
+
+    def test_not_in_group_database_is_no_bridge(self):
+        # #39: sg only hands over a group the user belongs to
+        self.assertIsNone(
+            mod.input_group_bridge(has_group=False, in_group_db=False,
+                                   which=which_of("sg", "newgrp"),
+                                   newgrp_help=lambda: UTIL_LINUX_NEWGRP_HELP))
+
+    def test_effective_group_skips_the_database(self):
+        self.assertEqual(
+            mod.input_group_bridge(has_group=True, in_group_db=False,
+                                   which=which_of("sg")), [])
 
 
 class HasInputGroupTests(unittest.TestCase):
@@ -82,6 +95,12 @@ class HasInputGroupTests(unittest.TestCase):
         import subprocess
         expected = "input" in subprocess.run(["id", "-nG"], capture_output=True, text=True).stdout.split()
         self.assertEqual(mod.has_input_group(), expected)
+
+    def test_group_database_answer_matches_id(self):
+        import subprocess
+        user = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+        groups = subprocess.run(["id", "-nG", user], capture_output=True, text=True).stdout.split()
+        self.assertEqual(mod.user_in_input_group(), "input" in groups)
 
 
 if __name__ == "__main__":

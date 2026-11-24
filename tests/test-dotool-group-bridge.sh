@@ -21,9 +21,12 @@ check() {  # label, got, expected
     if [[ "$2" == "$3" ]]; then echo "PASS $1"; else echo "FAIL $1: got '$2', expected '$3'"; fails=$((fails+1)); fi
 }
 
-stub_dir() {  # groups, sg?(1/0), newgrp help text ("" = no newgrp)
+stub_dir() {  # process groups, sg?(1/0), newgrp help text ("" = no newgrp), groups in /etc/group
     local d; d=$(mktemp -d)
-    printf '#!/bin/sh\necho "%s"\n' "$1" > "$d/id"; chmod +x "$d/id"
+    # `id -un` -> raf; `id -nG raf` -> the group database (4th arg, defaults to
+    # the process groups); `id -nG` -> the groups of the running process.
+    printf '#!/bin/sh\ncase "$1 $2" in\n  "-un "*) echo raf ;;\n  "-nG raf") echo "%s" ;;\n  *) echo "%s" ;;\nesac\n' \
+        "${4:-$1}" "$1" > "$d/id"; chmod +x "$d/id"
     if [[ "$2" == 1 ]]; then printf '#!/bin/sh\nexit 0\n' > "$d/sg"; chmod +x "$d/sg"; fi
     if [[ -n "$3" ]]; then printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$3" > "$d/newgrp"; chmod +x "$d/newgrp"; fi
     echo "$d"
@@ -36,22 +39,33 @@ UTIL_LINUX_HELP='Usage: newgrp <group> [[-c] <command>]  -c, --command <command>
 BASE=$(mktemp -d)
 for t in grep sh; do ln -s "$(command -v $t)" "$BASE/$t"; done
 
-run_case() {  # stub dir
-    PATH="$1:$BASE" _dotool_group_bridge
+# uinput node: not writable by default (a missing path), a temporary file
+# for the ACL case.
+NO_UINPUT="$BASE/no-uinput"
+RW_UINPUT=$(mktemp)
+run_case() {  # stub dir [uinput node]
+    PATH="$1:$BASE" _UINPUT_NODE="${2:-$NO_UINPUT}" _dotool_group_bridge
 }
 
 check "group already effective: no wrapper" \
     "$(run_case "$(stub_dir 'raf input wheel' 1 "$UTIL_LINUX_HELP")")" ""
 check "Debian/Fedora: sg" \
-    "$(run_case "$(stub_dir 'raf wheel' 1 "$SHADOW_HELP")")" "sg input -c"
+    "$(run_case "$(stub_dir 'raf wheel' 1 "$SHADOW_HELP" 'raf wheel input')")" "sg input -c"
 check "Arch: util-linux newgrp -c" \
-    "$(run_case "$(stub_dir 'raf wheel' 0 "$UTIL_LINUX_HELP")")" "newgrp input -c"
+    "$(run_case "$(stub_dir 'raf wheel' 0 "$UTIL_LINUX_HELP" 'raf wheel input')")" "newgrp input -c"
 check "sg preferred when both work" \
-    "$(run_case "$(stub_dir 'raf wheel' 1 "$UTIL_LINUX_HELP")")" "sg input -c"
+    "$(run_case "$(stub_dir 'raf wheel' 1 "$UTIL_LINUX_HELP" 'raf wheel input')")" "sg input -c"
 check "shadow newgrp without sg: no bridge, flagged" \
-    "$(run_case "$(stub_dir 'raf wheel' 0 "$SHADOW_HELP")")" "none"
+    "$(run_case "$(stub_dir 'raf wheel' 0 "$SHADOW_HELP" 'raf wheel input')")" "none"
 check "nothing installed: no bridge, flagged" \
-    "$(run_case "$(stub_dir 'raf wheel' 0 "")")" "none"
+    "$(run_case "$(stub_dir 'raf wheel' 0 "" 'raf wheel input')")" "none"
+
+# #39: an ACL (logind's uaccess) can grant uinput without the group.
+check "uinput writable without the group (ACL): no wrapper" \
+    "$(run_case "$(stub_dir 'raf wheel' 1 "$SHADOW_HELP")" "$RW_UINPUT")" ""
+# #39: not in input even in /etc/group: sg would only ask for a password.
+check "not in group input at all: flagged, no sg" \
+    "$(run_case "$(stub_dir 'raf wheel' 1 "$SHADOW_HELP")")" "nogroup"
 
 # The script must not carry the old hard-coded helper any more.
 check "no hard-coded 'sg input -c' left in dictee" "$(grep -c "sg input -c '" "$SCRIPT")" "0"
