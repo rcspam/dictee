@@ -926,30 +926,10 @@ def _nemotron3_dir():
     return model_dir
 
 
-def _moss_available():
-    """True when the MOSS one-pass diarized-transcription engine is usable:
-    dictee-moss-diarize on PATH and its --check passing (model + native
-    transcribe.cpp runtime + python bindings). Unlike the other engines MOSS
-    emits the final transcript itself (ASR + speakers in a single pass).
-    Runs on any GPU via Vulkan, not just NVIDIA (crop2 bench 2026-07-15:
-    RTF 0.154 NVIDIA/Vulkan, 0.216 CUDA, 0.643 Intel Iris Xe iGPU, 1.73 CPU
-    — same output everywhere)."""
-    import shutil
-    exe = shutil.which("dictee-moss-diarize")
-    if not exe:
-        return False
-    try:
-        return subprocess.run(
-            [exe, "--check"], stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, timeout=10).returncode == 0
-    except Exception:
-        return False
-
-
 def _diarize_available():
-    """True when a diarization engine (Nemotron 3 or MOSS) is installed —
-    gates the diarize toggle."""
-    return _nemotron3_dir() is not None or _moss_available()
+    """True when Nemotron 3 Diarization is installed: gates the diarize
+    toggle."""
+    return _nemotron3_dir() is not None
 
 
 def _assign_speakers(words, speaker_segments, switch_penalty=1.5, free_gap=1.0):
@@ -1833,7 +1813,7 @@ def _format_hms(seconds):
 def _build_trim_cmd(src, dst, start_s, end_s):
     """ffmpeg command cutting [start_s, end_s] out of src into a 16 kHz mono
     WAV — the format every daemon expects. Built once, before any engine
-    runs, so all paths (MOSS, two-phase, chunked, isolated) get the same
+    runs, so all paths (two-phase, chunked, isolated) get the same
     trimmed input instead of each having to learn about bounds.
     `-ss` before `-i` seeks on the input (fast); an end of None means "to the
     end of the file" and emits no `-to` at all.
@@ -1989,8 +1969,7 @@ def _diarized_asr_spec(spec, f9_backend, f9_parakeet_model=""):
 
 
 def _select_transcribe_cmd(diarize, has_transcribe, has_diarize_only,
-                           has_moss=False, diar_engine="nemotron3",
-                           has_nemotron3=False):
+                           diar_engine="nemotron3", has_nemotron3=False):
     """Pick the ASR command and pipeline mode for a transcription run.
 
     Pure function (no I/O, no Qt) so the routing matrix stays
@@ -1999,22 +1978,17 @@ def _select_transcribe_cmd(diarize, has_transcribe, has_diarize_only,
 
     Routing rules:
       diarize=False + transcribe binary -> ("transcribe", False, None)
-      diarize=True  + engine combo set to MOSS and MOSS usable
-                    -> ("dictee-moss-diarize", False, None)
-        One-pass engine: MOSS emits the final diarized transcript itself
-        (DIARIZE_RE lines), so no phase 2 and no daemon involved.
       diarize=True  + Nemotron 3 usable -> ("diarize-only", True, None)
         Two phases: diarize-only prints Nemotron 3 pieces (one speaker
         each), then phase 2 has the daemon transcribe them one by one,
         whatever its backend (Canary included, in its own language).
-        Retired engine names (auto, multi, sortformer) still saved in
+        Retired engine names (auto, multi, sortformer, moss) still saved in
         QSettings or handed over by meeting-live land here.
       Required binary missing -> (None, False, error_string)
 
     Inputs:
       has_transcribe / has_diarize_only: bools, typically
         `bool(shutil.which(<name>))`.
-      has_moss: `_moss_available()`.
       has_nemotron3: `_nemotron3_dir() is not None`.
 
     Returns: (cmd, two_phase, error). On error, cmd is None and
@@ -2024,9 +1998,6 @@ def _select_transcribe_cmd(diarize, has_transcribe, has_diarize_only,
         if not has_transcribe:
             return None, False, "transcribe"
         return "transcribe", False, None
-
-    if diar_engine == "moss" and has_moss:
-        return "dictee-moss-diarize", False, None
 
     if has_nemotron3 and has_diarize_only:
         return "diarize-only", True, None
@@ -2067,8 +2038,8 @@ def _vram_needed_mb(diarize, own_asr_model):
 
     A plain run loads Parakeet in the transcribe CLI (~3.5 GB). A diarized
     run adds Nemotron 3 (664 MiB peak on 21 and 50 min, 2026-10-04) to the
-    resident daemon that transcribes its pieces: the daemon stays. A MOSS
-    run, or a phase 2 on an isolated engine, loads a model of its own.
+    resident daemon that transcribes its pieces: the daemon stays. A phase 2
+    on an isolated engine loads a model of its own.
     Pure function, tests/test-transcribe-routing.py."""
     if not diarize:
         return 3584
@@ -2954,7 +2925,7 @@ class LLMProcessDialog(QDialog):
 # run: _run_tab (the tab the run writes into; captured at run start,
 # never re-resolved inside async handlers), _process, _stdout_buf,
 # _transcription_in_progress, _start_time, _diarize_two_phase,
-# _user_cancelled, _retry_done, _moss_run, _daemon_was_active,
+# _user_cancelled, _retry_done, _daemon_was_active,
 # _isolated_recipe, _diarize_audio_path, _chunked_phase_label,
 # _translate_start.
 #
@@ -3354,19 +3325,14 @@ class TranscribeWindow(QDialog):
         # vertical rhythm of the pad doesn't change when it appears.
         self._chk_diarize = ToggleSwitch(_("Diarization (speaker identification)"))
         nemotron3_ok = _nemotron3_dir() is not None
-        moss_ok = _moss_available()
         # Cached for _update_transcribe_btn: its bare setEnabled(not_running)
         # used to re-arm the toggle on every file-input change even when no
         # diarization engine is installed.
-        self._diar_available = nemotron3_ok or moss_ok
+        self._diar_available = nemotron3_ok
         self._chk_diarize.setEnabled(self._diar_available)
         if nemotron3_ok:
             self._chk_diarize.setToolTip(self._tip(
                 _("Identify speakers (max 8), on recordings of any length.")))
-        elif moss_ok:
-            self._chk_diarize.setToolTip(self._tip(
-                _("Identify speakers with MOSS (transcript and speakers in "
-                  "one pass).")))
         else:
             self._chk_diarize.setToolTip(
                 _("No diarization model installed. Configure in dictee-setup."))
@@ -3392,10 +3358,9 @@ class TranscribeWindow(QDialog):
         self._w_threshold.setVisible(False)
 
         # Diarization engine combo (same visibility rhythm as the threshold
-        # widget): Nemotron 3 by default, MOSS on demand. An engine that is
-        # not installed is greyed out and the other one selected, without
-        # saving that fallback (installing Nemotron 3 later brings it back).
-        # Persisted per window in QSettings, like the translate choices.
+        # widget): Nemotron 3 alone since MOSS left (1.4), greyed out when
+        # it is not installed. A retired engine saved in QSettings (auto,
+        # multi, sortformer, moss) falls back to it.
         self._w_diar_engine = QWidget()
         lay_diar_eng = QHBoxLayout(self._w_diar_engine)
         lay_diar_eng.setContentsMargins(0, 0, 0, 0)
@@ -3407,69 +3372,21 @@ class TranscribeWindow(QDialog):
         # Nemotron 3 Diarization (NVIDIA): up to 8 speakers, run by
         # diarize-only --engine nemotron3 --pieces.
         self._cmb_diar_engine.addItem(_("Nemotron 3 (max 8)"), "nemotron3")
-        # MOSS is a different animal: a single pass produces the transcript
-        # AND the speakers (it replaces the ASR phase entirely), so the
-        # threshold slider does not apply to it. Any GPU (Vulkan), not just
-        # NVIDIA; CPU works but is slower than real time.
-        self._cmb_diar_engine.addItem(_("MOSS (integrated, GPU)"), "moss")
-        for _data, _ok in (("nemotron3", nemotron3_ok), ("moss", moss_ok)):
-            if not _ok:
-                self._cmb_diar_engine.model().item(
-                    self._cmb_diar_engine.findData(_data)).setEnabled(False)
+        if not nemotron3_ok:
+            self._cmb_diar_engine.model().item(0).setEnabled(False)
         self._cmb_diar_engine.setToolTip(self._tip(
             _("Diarization engine. Nemotron 3 (NVIDIA) tells up to 8 "
-              "speakers apart, on the GPU or the CPU. MOSS transcribes and "
-              "identifies speakers in a single pass (own ASR); it needs a "
-              "GPU (any brand) and is slower than real time on the CPU.")))
+              "speakers apart, on the GPU or the CPU.")))
         _qs_diar = QSettings("dictee", "transcribe")
         _i = self._cmb_diar_engine.findData(
             _qs_diar.value("diarize/engine", "nemotron3"))
         if _i >= 0 and self._cmb_diar_engine.model().item(_i).isEnabled():
             self._cmb_diar_engine.setCurrentIndex(_i)
-        elif moss_ok and not nemotron3_ok:
-            self._cmb_diar_engine.setCurrentIndex(
-                self._cmb_diar_engine.findData("moss"))
         self._cmb_diar_engine.currentIndexChanged.connect(
             lambda _i: QSettings("dictee", "transcribe").setValue(
                 "diarize/engine", self._cmb_diar_engine.currentData()))
-        # Re-evaluate the threshold visibility when the engine changes
-        # (hidden for MOSS, which has no clustering threshold).
-        self._cmb_diar_engine.currentIndexChanged.connect(
-            lambda _i: self._on_diarize_toggled(self._chk_diarize.isChecked()))
         lay_diar_eng.addWidget(self._cmb_diar_engine)
         self._w_diar_engine.setVisible(False)
-
-        # Secondary ASR for MOSS transcript holes (silent omissions and
-        # truncated runaway chunks): the recovered text lands as UNKNOWN
-        # turns — no speaker claim — so the LLM analysis never loses
-        # content. Only meaningful for a MOSS run, hence the inverted
-        # visibility rhythm vs the threshold widget. The UI choice wins
-        # over the dictee.conf DICTEE_MOSS_GAP_ASR key for runs started
-        # here (the conf key still drives meeting-live and CLI runs).
-        self._w_moss_gap = QWidget()
-        lay_moss_gap = QHBoxLayout(self._w_moss_gap)
-        lay_moss_gap.setContentsMargins(0, 0, 0, 0)
-        lay_moss_gap.addWidget(QLabel(_("Gap fill:")))
-        self._cmb_moss_gap = QComboBox()
-        self._cmb_moss_gap.addItem(_("Parakeet"), "parakeet")
-        self._cmb_moss_gap.addItem(_("MOSS retry"), "moss")
-        self._cmb_moss_gap.addItem(_("Off"), "none")
-        self._cmb_moss_gap.setToolTip(self._tip(
-            _("When MOSS leaves a hole in the transcript (a span with no "
-              "output), a secondary engine transcribes it and the text is "
-              "inserted with the UNKNOWN speaker label. Parakeet: robust "
-              "default. MOSS retry: often recovers more words but may "
-              "hallucinate on silence. Off: keep the hole, warn only.")))
-        _qs_gap = QSettings("dictee", "transcribe")
-        _ig = self._cmb_moss_gap.findData(
-            _qs_gap.value("diarize/moss_gap_asr", "parakeet"))
-        if _ig >= 0:
-            self._cmb_moss_gap.setCurrentIndex(_ig)
-        self._cmb_moss_gap.currentIndexChanged.connect(
-            lambda _i: QSettings("dictee", "transcribe").setValue(
-                "diarize/moss_gap_asr", self._cmb_moss_gap.currentData()))
-        lay_moss_gap.addWidget(self._cmb_moss_gap)
-        self._w_moss_gap.setVisible(False)
 
         lay_diarize_row = QHBoxLayout()
         lay_diarize_row.setContentsMargins(0, 0, 0, 0)
@@ -3477,7 +3394,6 @@ class TranscribeWindow(QDialog):
         lay_diarize_row.addWidget(self._chk_diarize, 0, Qt.AlignmentFlag.AlignLeft)
         lay_diarize_row.addWidget(self._w_threshold, 0, Qt.AlignmentFlag.AlignLeft)
         lay_diarize_row.addWidget(self._w_diar_engine, 0, Qt.AlignmentFlag.AlignLeft)
-        lay_diarize_row.addWidget(self._w_moss_gap, 0, Qt.AlignmentFlag.AlignLeft)
         lay_diarize_row.addStretch(1)
         lay_opts.addLayout(lay_diarize_row)
         self._chk_diarize.toggled.connect(self._on_diarize_toggled)
@@ -4864,12 +4780,8 @@ class TranscribeWindow(QDialog):
         # standard ExportDialog.
 
     def _on_diarize_toggled(self, checked):
-        # The threshold drives the clustering engines only — hide it when
-        # the MOSS one-pass engine is selected (no clustering stage).
-        _is_moss = (self._cmb_diar_engine.currentData() or "auto") == "moss"
-        self._w_threshold.setVisible(checked and not _is_moss)
+        self._w_threshold.setVisible(checked)
         self._w_diar_engine.setVisible(checked)
-        self._w_moss_gap.setVisible(checked and _is_moss)
         self._grey_parakeet_while_diarizing(checked)
         self._update_long_audio_warning()
         self._refresh_window_icon()
@@ -5052,11 +4964,6 @@ class TranscribeWindow(QDialog):
         """
         if not self.isVisible():
             return  # window closed, don't start new transcription
-        # Describes the run about to start, and is only set further down
-        # (after the chunked / isolated-plain early returns). Left over
-        # from a previous MOSS run it muted _start_run_ticker, so those
-        # two paths lost their elapsed clock after any MOSS run.
-        self._moss_run = False
         if retry_of is not None and self._tabs.indexOf(retry_of) < 0:
             retry_of = None  # tab closed during the retry delay
         audio_path = (getattr(retry_of, '_audio_path', None)
@@ -5074,7 +4981,7 @@ class TranscribeWindow(QDialog):
             return
 
         # Apply the transcription bounds ONCE, here, before any engine is
-        # chosen: every path downstream (MOSS one-pass, two-phase, chunked,
+        # chosen: every path downstream (two-phase, chunked,
         # isolated daemons) then receives an already-trimmed file and needs
         # to know nothing about bounds. _trim_offset rebases the timestamps
         # on the way back so the transcript speaks the original timeline.
@@ -5178,12 +5085,6 @@ class TranscribeWindow(QDialog):
         self._text_edit._audio_duration = dur
         self._progress.setVisible(True)
 
-        # A MOSS run is decided here, before the VRAM check: it loads a model
-        # of its own. The combo is read first so that the MOSS --check
-        # subprocess only runs when MOSS is chosen.
-        _moss_run = (diarize
-                     and self._cmb_diar_engine.currentData() == "moss"
-                     and _moss_available())
         # Free GPU VRAM if needed: only stop processes when VRAM is tight
         _dbg("_on_transcribe: checking GPU VRAM")
         self._daemon_was_active = False
@@ -5202,8 +5103,8 @@ class TranscribeWindow(QDialog):
                 _recipe = self._isolated_recipe
                 vram_needed = _vram_needed_mb(
                     diarize, own_asr_model=bool(
-                        _moss_run or (_recipe and _recipe["env"].get(
-                            "DICTEE_FORCE_CPU") != "1")))
+                        _recipe and _recipe["env"].get(
+                            "DICTEE_FORCE_CPU") != "1"))
                 _dbg(f"_on_transcribe: GPU VRAM free={free_mb} MB, needed={vram_needed} MB, diarize={diarize}")
                 if free_mb < vram_needed:
                     # Check what's using VRAM
@@ -5267,8 +5168,7 @@ class TranscribeWindow(QDialog):
         # An isolated Parakeet quant also goes there at any length (one
         # chunk for short files), its env forced onto the batch CLI.
         # A diarized run never does: phase 2 sends the Nemotron 3 pieces,
-        # each one short, to the daemon (isolated Parakeet included), and
-        # MOSS ingests the whole file in one pass.
+        # each one short, to the daemon (isolated Parakeet included).
         _parakeet_isolated = bool(
             getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "parakeet")
@@ -5341,12 +5241,6 @@ class TranscribeWindow(QDialog):
         for _k, _v in _read_conf().items():
             if _k.startswith("DICTEE_"):
                 env.insert(_k, _v)
-        if _moss_run:
-            # UI choice for the MOSS hole-patching engine — inserted after
-            # the conf loop so the window's combo wins over dictee.conf
-            # for runs started here.
-            env.insert("DICTEE_MOSS_GAP_ASR",
-                       self._cmb_moss_gap.currentData() or "parakeet")
         self._process.setProcessEnvironment(env)
         self._process.readyReadStandardOutput.connect(self._on_stdout)
         self._process.finished.connect(self._on_finished)
@@ -5361,7 +5255,6 @@ class TranscribeWindow(QDialog):
             diarize=diarize,
             has_transcribe=bool(shutil.which("transcribe")),
             has_diarize_only=bool(shutil.which("diarize-only")),
-            has_moss=_moss_run,
             diar_engine=diar_engine,
             has_nemotron3=nemotron3_dir is not None,
         )
@@ -5393,33 +5286,16 @@ class TranscribeWindow(QDialog):
         args = [audio_path]
         if diarize and cmd == "diarize-only":
             args += _diarize_only_engine_args(nemotron3_dir)
-        # MOSS takes no tuning flag: the threshold slider drives Nemotron 3
-        # only (MOSS has no threshold).
-        if diarize and cmd != "dictee-moss-diarize":
+        if diarize:
             sensitivity = self._sld_sensitivity.value() / 100.0
             args += ["--sensitivity", f"{sensitivity:.2f}"]
         self._process.start(cmd, args)
-        # MOSS (one pass, own ASR) prints nothing until it finishes and can
-        # run much slower than real time on mic audio (RTF up to ~7 measured
-        # 2026-07-16), so the indeterminate bar alone reads as "frozen".
-        # Show a live elapsed-time ticker with an honest expectation.
-        self._moss_run = (cmd == "dictee-moss-diarize")
-        if self._moss_run:
-            self._moss_elapsed = 0
-            self._run_status(
-                _("MOSS: transcription + speakers in one pass "
-                  "(0:00 — can take several times the audio length)…"))
-            self._moss_ticker = QTimer(self)
-            self._moss_ticker.timeout.connect(self._on_moss_tick)
-            self._moss_ticker.start(1000)
         # Watchdog: kill the process if it hangs. Duration-aware like the
         # chunked pipeline: a 92-min diarize legitimately runs 15-20 min on
         # GPU (RTF ~0.9 on CPU) and the binary prints nothing until done —
         # the previous fixed 5-min timer killed every diarized file longer
-        # than ~25 min on this path. MOSS needs a far wider margin: on mic
-        # audio it hit RTF ~7, so 3x duration would kill a valid run.
-        _rtf_margin = 12 if self._moss_run else 3
-        watchdog_secs = (max(600, int(dur * _rtf_margin))
+        # than ~25 min on this path.
+        watchdog_secs = (max(600, int(dur * 3))
                          if diarize else 300)
         self._watchdog_secs = watchdog_secs  # for the timeout message
         self._process_timer = QTimer(self)
@@ -5431,22 +5307,6 @@ class TranscribeWindow(QDialog):
         self._btn_cancel.setVisible(True)
         self._btn_cancel.setEnabled(True)
         self._start_run_ticker()
-
-    def _on_moss_tick(self):
-        """Update the elapsed-time counter shown during a MOSS run so the
-        window doesn't read as frozen (MOSS emits nothing until it ends)."""
-        self._moss_elapsed += 1
-        m, s = divmod(self._moss_elapsed, 60)
-        self._run_status(
-            _("MOSS: transcription + speakers in one pass "
-              "({m}:{s:02d} — can take several times the audio length)…")
-            .format(m=m, s=s))
-
-    def _stop_moss_ticker(self):
-        t = getattr(self, "_moss_ticker", None)
-        if t is not None:
-            t.stop()
-            self._moss_ticker = None
 
     # The elapsed clock the run ticker puts at the end of the run status.
     _RUN_CLOCK_RE = re.compile(r"\s*\(\d{2}:\d{2}(?::\d{2})?\)$")
@@ -5472,11 +5332,7 @@ class TranscribeWindow(QDialog):
 
     def _start_run_ticker(self):
         """Live elapsed counter appended to the run status every second —
-        the user used to get the duration only in the final message. MOSS
-        runs keep their dedicated ticker (it owns its whole message; two
-        rewriters would fight)."""
-        if getattr(self, '_moss_run', False):
-            return
+        the user used to get the duration only in the final message."""
         self._stop_run_ticker()
         self._run_ticker = QTimer(self)
         self._run_ticker.timeout.connect(self._on_run_tick)
@@ -5506,7 +5362,6 @@ class TranscribeWindow(QDialog):
         # which don't exist on TranscribeWindow → AttributeError silently
         # froze the UI when the 5-min watchdog fired (button stayed disabled,
         # _process / _transcription_in_progress never reset).
-        self._stop_moss_ticker()
         self._stop_run_ticker()
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             _dbg("Process timeout — killing")
@@ -5911,7 +5766,6 @@ class TranscribeWindow(QDialog):
     def _on_finished(self, exit_code, _exit_status):
         if hasattr(self, '_process_timer'):
             self._process_timer.stop()
-        self._stop_moss_ticker()
         self._progress.setVisible(False)
         if self._process:
             self._process.deleteLater()
@@ -5947,8 +5801,8 @@ class TranscribeWindow(QDialog):
         # (MM:SS) clock, and a following translation's status spinner
         # then fought the ticker, alternating two lines every second.
         # Same hole for the Cancel button: only the cancel/error branches
-        # below hid it, so a successful one-pass run (MOSS diarize among
-        # others) kept Cancel on screen next to the re-enabled Transcribe.
+        # below hid it, so a successful one-pass run kept Cancel on screen
+        # next to the re-enabled Transcribe.
         self._stop_run_ticker()
         self._btn_cancel.setVisible(False)
 
@@ -5963,7 +5817,6 @@ class TranscribeWindow(QDialog):
             _dbg("_on_finished: run cancelled by user")
             self._btn_cancel.setVisible(False)
             self._progress.setVisible(False)
-            self._stop_moss_ticker()
             self._stop_run_ticker()
             self._run_status(_("Cancelled"))
             self._transcription_in_progress = False
@@ -7216,7 +7069,7 @@ def main():
     parser.add_argument("--diarize", "-d", action="store_true",
                         help="Enable speaker diarization")
     parser.add_argument("--diar-engine", default="",
-                        help="Diarization engine (nemotron3|moss). "
+                        help="Diarization engine (nemotron3). "
                              "Empty = the choice persisted in the window. "
                              "An unavailable or retired engine is ignored.")
     parser.add_argument("--asr-model", default="",

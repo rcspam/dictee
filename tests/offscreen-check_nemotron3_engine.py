@@ -1,13 +1,12 @@
-"""Diarization engines of dictee-transcribe: Nemotron 3, and MOSS on demand.
+"""Diarization engine of dictee-transcribe: Nemotron 3 alone (MOSS left in 1.4).
 
-With the availability probes stubbed, checks that:
-  - the engine combo offers Nemotron 3 (the default) and MOSS, nothing else;
-  - an engine that is not installed is greyed out and the other one is
-    selected, without that fallback being saved;
-  - the toggle needs one engine and points to dictee-setup without any;
-  - a retired engine (auto, multi, sortformer), saved in QSettings or handed
-    over by --diar-engine, falls back to Nemotron 3; --diar-engine moss
-    selects MOSS;
+With the availability probe stubbed, checks that:
+  - the engine combo offers Nemotron 3, nothing else;
+  - Nemotron 3 not installed: its entry is greyed out, nothing is saved;
+  - the toggle needs the engine and points to dictee-setup without it;
+  - a retired engine (auto, multi, sortformer, moss), saved in QSettings or
+    handed over by --diar-engine, falls back to Nemotron 3;
+  - no Gap fill selector (MOSS only) is left in the window;
   - eight distinct speaker colors, the first four unchanged.
 
 QSettings and dictee.conf are read from a throwaway XDG_CONFIG_HOME.
@@ -77,9 +76,8 @@ for key, value in saved_env.items():
         os.environ[key] = value
 
 
-def stub(nemotron3=True, moss=False):
+def stub(nemotron3=True):
     mod._nemotron3_dir = (lambda: MODEL_DIR) if nemotron3 else (lambda: None)
-    mod._moss_available = lambda: moss
 
 
 def engines(win):
@@ -98,55 +96,47 @@ def saved_engine():
     return QSettings("dictee", "transcribe").value("diarize/engine")
 
 
-# ── two engines: Nemotron 3 by default, MOSS on demand ────────────────
-stub(nemotron3=True, moss=True)
+# ── one engine: Nemotron 3 ────────────────────────────────────────────
+assert not hasattr(mod, "_moss_available")
+stub(nemotron3=True)
 win = mod.TranscribeWindow()
-assert engines(win) == ["nemotron3", "moss"], engines(win)
+assert engines(win) == ["nemotron3"], engines(win)
 assert entry(win, "nemotron3").text() == "Nemotron 3 (max 8)", entry(win, "nemotron3").text()
-assert entry(win, "nemotron3").isEnabled() and entry(win, "moss").isEnabled()
+assert entry(win, "nemotron3").isEnabled()
 assert win._cmb_diar_engine.currentData() == "nemotron3", win._cmb_diar_engine.currentData()
-win.close()
-
-# ── a missing engine is greyed out, the other one selected but not saved ──
-stub(nemotron3=False, moss=True)
-win = mod.TranscribeWindow()
-assert not entry(win, "nemotron3").isEnabled(), "Nemotron 3 not usable: entry greyed out"
-assert win._cmb_diar_engine.currentData() == "moss", win._cmb_diar_engine.currentData()
-assert saved_engine() in (None, "nemotron3"), saved_engine()
-assert win._diar_available and win._chk_diarize.isEnabled()
-win.close()
-
-stub(nemotron3=True, moss=False)
-win = mod.TranscribeWindow()
-assert not entry(win, "moss").isEnabled()
-assert win._cmb_diar_engine.currentData() == "nemotron3"
 assert win._diar_available and win._chk_diarize.isEnabled()
 assert "8" in win._chk_diarize.toolTip(), win._chk_diarize.toolTip()
+assert "MOSS" not in win._cmb_diar_engine.toolTip(), win._cmb_diar_engine.toolTip()
+assert not hasattr(win, "_cmb_moss_gap") and not hasattr(win, "_w_moss_gap")
 win.close()
 
 # ── no engine: no diarization, and a pointer to the setup ────────────
-stub(nemotron3=False, moss=False)
+stub(nemotron3=False)
 win = mod.TranscribeWindow()
+assert not entry(win, "nemotron3").isEnabled(), "Nemotron 3 not usable: entry greyed out"
+assert saved_engine() in (None, "nemotron3"), saved_engine()
 assert not win._diar_available and not win._chk_diarize.isEnabled()
 assert "dictee-setup" in win._chk_diarize.toolTip(), win._chk_diarize.toolTip()
 win.close()
 
 # ── retired engines fall back to Nemotron 3 ───────────────────────────
 QSettings("dictee", "transcribe").setValue("diarize/engine", "multi")
-stub(nemotron3=True, moss=True)
+stub(nemotron3=True)
 win = mod.TranscribeWindow()
 assert win._cmb_diar_engine.currentData() == "nemotron3", win._cmb_diar_engine.currentData()
 win.close()
-win = mod.TranscribeWindow(diar_engine="sortformer")
+QSettings("dictee", "transcribe").setValue("diarize/engine", "moss")
+win = mod.TranscribeWindow()
 assert win._cmb_diar_engine.currentData() == "nemotron3", win._cmb_diar_engine.currentData()
 win.close()
-win = mod.TranscribeWindow(diar_engine="moss")
-assert win._cmb_diar_engine.currentData() == "moss", win._cmb_diar_engine.currentData()
-win.close()
+for engine in ("sortformer", "moss"):
+    win = mod.TranscribeWindow(diar_engine=engine)
+    assert win._cmb_diar_engine.currentData() == "nemotron3", (engine, win._cmb_diar_engine.currentData())
+    win.close()
 
 # ── the ASR list: no faster-whisper, no Parakeet while diarizing ──────
 # The throwaway dictee.conf sets no backend: F9 is Parakeet.
-stub(nemotron3=True, moss=False)
+stub(nemotron3=True)
 win = mod.TranscribeWindow()
 asr = win._asr_model_combo
 specs = [asr.itemData(i) for i in range(asr.count())]

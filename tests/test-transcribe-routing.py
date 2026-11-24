@@ -3,8 +3,7 @@
 
 1. Diarization (refonte of 2026-10-04): Nemotron 3 cuts the recording into
    pieces (diarize-only --pieces), then phase 2 sends one request per piece
-   to whatever daemon transcribes, Canary included; MOSS runs alone when
-   chosen. Before, a Canary daemon was bypassed by the standalone
+   to whatever daemon transcribes, Canary included. Before, a Canary daemon was bypassed by the standalone
    transcribe-diarize (Parakeet + Sortformer), because the two-phase path
    sent it the whole file in its fixed language (commit acfefc0).
 
@@ -78,15 +77,16 @@ class SelectTranscribeCmdTests(unittest.TestCase):
     """Routing matrix for _on_transcribe.
 
     Diarization runs Nemotron 3 in two phases (diarize-only, then the
-    daemon piece by piece), or MOSS in one pass when it is chosen and
-    installed. The F9 ASR backend no longer changes the command.
+    daemon piece by piece). MOSS left in 1.4: its name falls back to
+    Nemotron 3 like the other retired engines. The F9 ASR backend no
+    longer changes the command.
     """
 
     def route(self, diarize=True, has_transcribe=True, has_diarize_only=True,
-              has_moss=False, diar_engine="nemotron3", has_nemotron3=True):
+              diar_engine="nemotron3", has_nemotron3=True):
         return _select_transcribe_cmd(
             diarize=diarize, has_transcribe=has_transcribe,
-            has_diarize_only=has_diarize_only, has_moss=has_moss,
+            has_diarize_only=has_diarize_only,
             diar_engine=diar_engine, has_nemotron3=has_nemotron3)
 
     def test_plain_uses_transcribe_binary(self):
@@ -97,25 +97,19 @@ class SelectTranscribeCmdTests(unittest.TestCase):
                          (None, False, "transcribe"))
 
     def test_plain_ignores_the_diarization_engine(self):
-        self.assertEqual(self.route(diarize=False, has_moss=True, diar_engine="moss"),
+        self.assertEqual(self.route(diarize=False, diar_engine="moss"),
                          ("transcribe", False, None))
 
     def test_diarize_runs_nemotron3_in_two_phases(self):
         self.assertEqual(self.route(), ("diarize-only", True, None))
 
-    def test_moss_when_chosen_and_installed(self):
-        self.assertEqual(self.route(has_moss=True, diar_engine="moss"),
-                         ("dictee-moss-diarize", False, None))
-
-    def test_moss_chosen_but_missing_runs_nemotron3(self):
-        self.assertEqual(self.route(diar_engine="moss"), ("diarize-only", True, None))
-
-    def test_moss_installed_but_not_chosen_never_wins(self):
-        self.assertEqual(self.route(has_moss=True), ("diarize-only", True, None))
+    def test_moss_is_no_longer_routed(self):
+        import inspect
+        self.assertNotIn("has_moss", inspect.signature(_select_transcribe_cmd).parameters)
 
     def test_retired_engine_names_run_nemotron3(self):
         # QSettings or meeting-live can still hand over these names
-        for engine in ("auto", "multi", "sortformer"):
+        for engine in ("auto", "multi", "sortformer", "moss"):
             self.assertEqual(self.route(diar_engine=engine),
                              ("diarize-only", True, None), engine)
 
@@ -233,7 +227,7 @@ class VramNeededTests(unittest.TestCase):
         # 664 MiB peak on 21 and 50 min, measured 2026-10-04
         self.assertEqual(_vram_needed_mb(diarize=True, own_asr_model=False), 1024)
 
-    def test_moss_or_an_isolated_engine_loads_its_own_model(self):
+    def test_an_isolated_engine_loads_its_own_model(self):
         self.assertEqual(_vram_needed_mb(diarize=True, own_asr_model=True), 5120)
 
 
