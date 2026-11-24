@@ -159,6 +159,31 @@ _stop_user_services() {
     done
 }
 
+_drop_stale_user_units() {
+    # ~/.config/systemd/user wins over /usr/lib/systemd/user, so units left by a
+    # previous TARBALL install silently shadow the ones this package ships — and
+    # they point at /usr/local/bin, which pacman never populates. Measured here:
+    # a July tarball left a unit calling /usr/local/bin/sg, dictee-ptt failed 27
+    # times with 203/EXEC, and push-to-talk never worked after installing.
+    for uid in $(_user_session_uids); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        home=$(getent passwd "$user" | cut -d: -f6)
+        [ -d "$home/.config/systemd/user" ] || continue
+        removed=0
+        for unit in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai; do
+            [ -f "$home/.config/systemd/user/$unit.service" ] || continue
+            rm -f "$home/.config/systemd/user/$unit.service" && removed=$((removed + 1))
+        done
+        if [ "$removed" -gt 0 ]; then
+            echo "✓ $removed stale tarball unit(s) removed for $user"
+            sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" \
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+                systemctl --user daemon-reload 2>/dev/null || true
+        fi
+    done
+}
+
 _setup_user_groups() {
     # Add logged-in users to the 'input' group (dotool / dictee-ptt
     # need /dev/uinput access) and 'docker' group when docker is
@@ -272,6 +297,7 @@ post_install() {
     modprobe uinput 2>/dev/null || true
 
     _install_uinput_drop_in
+    _drop_stale_user_units
     _clean_greeter_accounts
     _setup_user_groups
     _enable_gnome_appindicator
@@ -285,6 +311,7 @@ post_upgrade() {
     modprobe uinput 2>/dev/null || true
 
     _install_uinput_drop_in
+    _drop_stale_user_units
     _clean_greeter_accounts
     _setup_user_groups
     _enable_gnome_appindicator

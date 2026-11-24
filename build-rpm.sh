@@ -434,7 +434,7 @@ for uid in \$(_user_session_uids); do
     home=\$(getent passwd "\$user" | cut -d: -f6)
     [ -d "\$home/.config/systemd/user" ] || continue
     removed=0
-    for unit in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
+    for unit in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai; do
         [ -f "\$home/.config/systemd/user/\$unit.service" ] || continue
         rm -f "\$home/.config/systemd/user/\$unit.service" && removed=\$((removed + 1))
     done
@@ -794,7 +794,7 @@ for uid in \$(_user_session_uids); do
     home=\$(getent passwd "\$user" | cut -d: -f6)
     [ -d "\$home/.config/systemd/user" ] || continue
     removed=0
-    for unit in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
+    for unit in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai; do
         [ -f "\$home/.config/systemd/user/\$unit.service" ] || continue
         rm -f "\$home/.config/systemd/user/\$unit.service" && removed=\$((removed + 1))
     done
