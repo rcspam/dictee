@@ -1,14 +1,17 @@
 """Retired diarization models on the Diarization page of dictee-setup.
 
-Sortformer and the multi-speaker model (diarize-multi) left dictee in 1.4;
-their models stay on disk after an upgrade. Checks that:
+Sortformer and the multi-speaker model (diarize-multi) left dictee in 1.4,
+MOSS too; their files stay on disk after an upgrade. Checks that:
   - nothing is shown when neither is left, nor for an empty directory;
   - each one left gets a row with its size, system and user dirs added up;
   - Delete asks first, and No keeps everything;
   - Yes deletes the model's directories and hides its row, then the box once
     the last row is gone;
   - a directory that cannot be deleted goes through pkexec, and if it is
-    still there the row stays and a warning names the model.
+    still there the row stays and a warning names the model;
+  - MOSS is listed when any of its three dirs is left (GGUF model, moss-env
+    venv, transcribe.cpp runtime), its size adds them up, and Delete
+    removes them all.
 
 The two methods are called on a bare widget: no setup dialog is built. The
 system and user model dirs are throwaway ones, never /usr/share/dictee.
@@ -45,10 +48,16 @@ app = QApplication.instance() or QApplication([])
 
 SYS = os.path.join(_HOME, "usr-share-dictee")
 assert mod.DICTEE_DATA_DIR.startswith(_HOME), mod.DICTEE_DATA_DIR
+SYSLIB = os.path.join(_HOME, "usr-lib-dictee")
 for model in mod.RETIRED_MODELS:
-    model["dir"] = model["dir"].replace(mod.MODEL_DIR, SYS)
+    model["dirs"] = [d.replace(mod.MODEL_DIR, SYS).replace("/usr/lib/dictee", SYSLIB)
+                     for d in model["dirs"]]
+    assert all(d.startswith(_HOME) for d in model["dirs"]), model
 mod.MODEL_DIR = SYS
-SORTFORMER, DIAR = mod.RETIRED_MODELS
+MODELS = {m["id"]: m for m in mod.RETIRED_MODELS}
+assert list(MODELS) == ["sortformer", "diar", "moss"], list(MODELS)
+SORTFORMER = MODELS["sortformer"]
+MOSS = MODELS["moss"]
 
 
 def put(path, size):
@@ -148,5 +157,30 @@ assert r[0][2].isHidden() and not box.isHidden(), "one model left: the box stays
 with answer(QMessageBox.StandardButton.Yes):
     r[1][1].click()
 assert box.isHidden()
+
+# ── MOSS: the GGUF, the moss-env venv and the transcribe.cpp runtime ──
+USER = mod.DICTEE_DATA_DIR
+put(os.path.join(USER, "moss-env", "lib", "x.py"), 1_000_000)
+host, box = page()
+r = rows(box)
+assert [t for t, _b, _r in r] == ["MOSS: 1 MB"], r
+put(os.path.join(SYS, "moss", "MOSS-Transcribe-Diarize-Q8_0.gguf"), 2_000_000)
+put(os.path.join(USER, "moss", "MOSS-Transcribe-Diarize-Q8_0.gguf"), 1_000_000)
+put(os.path.join(USER, "transcribe-cpp", "libtranscribe.so"), 1_000_000)
+put(os.path.join(SYSLIB, "transcribe-cpp", "libtranscribe.so"), 1_000_000)
+host, box = page()
+r = rows(box)
+assert [t for t, _b, _r in r] == ["MOSS: 6 MB"], r
+assert len(mod.retired_model_dirs(MOSS)) == 5, mod.retired_model_dirs(MOSS)
+with answer(QMessageBox.StandardButton.Yes):
+    r[0][1].click()
+for d in (os.path.join(SYS, "moss"), os.path.join(USER, "moss"),
+          os.path.join(USER, "moss-env"), os.path.join(USER, "transcribe-cpp"),
+          os.path.join(SYSLIB, "transcribe-cpp")):
+    assert not os.path.exists(d), d
+assert box.isHidden()
+
+# ── MOSS is no longer offered for download ──
+assert not [m for m in mod.ASR_MODELS if m["id"] == "moss"]
 
 print("OK")

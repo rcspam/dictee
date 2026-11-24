@@ -2460,41 +2460,6 @@ ASR_MODELS = [
         "required": False,
     },
     {
-        # MOSS-Transcribe-Diarize (OpenMOSS, Apache-2.0) on the
-        # transcribe.cpp runtime: a 0.9B audio-LLM that emits the transcript
-        # AND the speaker labels in a single pass. Any GPU via Vulkan, not
-        # just NVIDIA (crop2 bench 2026-07-15: RTF 0.154 NVIDIA/Vulkan,
-        # 0.216 CUDA, 0.643 Intel Iris Xe iGPU, 1.73 CPU — same output).
-        # The model row only manages the GGUF; the runtime (libtranscribe.so
-        # + moss-env venv) ships with the dictee package.
-        "id": "moss",
-        "name": _("MOSS integrated diarization"),
-        "desc": _("One-pass transcription + speaker labels (~1 GB, GPU "
-                  "recommended — any brand). Own ASR engine — pick it "
-                  "explicitly in the Transcribe window (Engine: MOSS)."),
-        "help": _(
-            "<b>MOSS integrated diarization</b> — one-pass engine<br><br>"
-            "A compact audio language model that produces the transcript "
-            "and the speaker labels <b>in a single pass</b>, with no "
-            "speaker-count cap.<br>"
-            "Runs on the transcribe.cpp runtime, on <b>any GPU</b> (NVIDIA, "
-            "AMD or Intel — including integrated graphics). On the CPU it "
-            "works but is slower than real time, so it only suits batch "
-            "use.<br><br>"
-            "<b>Optional</b> — select it explicitly in the Transcribe "
-            "window (Engine: MOSS). It replaces the ASR engine for that "
-            "run.<br>"
-            "Used by: <code>dictee-moss-diarize</code>"
-        ),
-        "dir": os.path.join(MODEL_DIR, "moss"),
-        "check_file": "MOSS-Transcribe-Diarize-Q8_0.gguf",
-        "files": [
-            ("https://huggingface.co/handy-computer/moss-transcribe-diarize-gguf/resolve/main/MOSS-Transcribe-Diarize-Q8_0.gguf",
-             "MOSS-Transcribe-Diarize-Q8_0.gguf"),
-        ],
-        "required": False,
-    },
-    {
         "id": "kyutai",
         "name": "Kyutai STT 1B (fr/en)",
         "desc": _("French/English streaming ASR — NVIDIA GPU only (~2.2 GB)"),
@@ -2629,20 +2594,28 @@ def any_parakeet_installed():
 
 
 # Diarization models of the engines retired in 1.4 (Sortformer and the
-# in-house multi-speaker diarize-multi, replaced by Nemotron 3): no longer
+# in-house multi-speaker diarize-multi, replaced by Nemotron 3; MOSS, whose
+# GGUF comes with a moss-env venv and a transcribe.cpp runtime): no longer
 # downloadable; the Diarization page lists those still on disk, with a
 # button to delete them.
 RETIRED_MODELS = [
     {"id": "sortformer", "name": "Sortformer",
-     "dir": os.path.join(MODEL_DIR, "sortformer")},
+     "dirs": [os.path.join(MODEL_DIR, "sortformer")]},
     {"id": "diar", "name": _("Multi-speaker diarization"),
-     "dir": os.path.join(MODEL_DIR, "diar")},
+     "dirs": [os.path.join(MODEL_DIR, "diar")]},
+    {"id": "moss", "name": "MOSS",
+     "dirs": [os.path.join(MODEL_DIR, "moss"),
+              os.path.join(DICTEE_DATA_DIR, "moss-env"),
+              os.path.join(DICTEE_DATA_DIR, "transcribe-cpp"),
+              "/usr/lib/dictee/transcribe-cpp"]},
 ]
 
 
 def retired_model_dirs(model):
-    """The directories (system, then user) still holding a retired model."""
-    dirs = dict.fromkeys((model["dir"], model["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR)))
+    """The directories still holding a retired model: each of its dirs,
+    with the user copy of those under MODEL_DIR."""
+    dirs = dict.fromkeys(
+        p for d in model["dirs"] for p in (d, d.replace(MODEL_DIR, DICTEE_DATA_DIR)))
     return [d for d in dirs if os.path.isdir(d) and os.listdir(d)]
 
 
@@ -10185,35 +10158,6 @@ class DicteeSetupDialog(QDialog):
         for model in [m for m in ASR_MODELS if m["id"] == "nemotron3-diar"]:
             self._build_model_row(nemotron3_lay, model)
         lay.addWidget(nemotron3_box)
-
-        moss_box = QGroupBox(_("MOSS (integrated, one pass)"))
-        moss_lay = QVBoxLayout(moss_box)
-        moss_lay.setContentsMargins(12, 12, 12, 10)
-        moss_lay.setSpacing(6)
-        for model in [m for m in ASR_MODELS if m["id"] == "moss"]:
-            self._build_model_row(moss_lay, model)
-        # The GGUF alone is not enough: dictee-moss-diarize also needs the
-        # transcribe.cpp runtime + python bindings (shipped with the CUDA
-        # package). Surface its own --check verdict so a greyed-out engine
-        # combo in the Transcribe window is explainable from here.
-        _moss_status = QLabel()
-        _moss_status.setWordWrap(True)
-        try:
-            _chk = subprocess.run(
-                ["dictee-moss-diarize", "--check"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                timeout=10, text=True)
-            if _chk.returncode == 0:
-                _moss_status.setText(_("Runtime: ready."))
-            else:
-                _moss_status.setText(
-                    _("Runtime: not ready — {details}.").format(
-                        details=_chk.stdout.strip() or "check failed"))
-        except Exception:
-            _moss_status.setText(
-                _("Runtime: dictee-moss-diarize not installed."))
-        moss_lay.addWidget(_moss_status)
-        lay.addWidget(moss_box)
 
         self._build_retired_models_box(lay)
 
