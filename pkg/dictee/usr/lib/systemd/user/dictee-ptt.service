@@ -5,7 +5,9 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/sg input -c "/usr/bin/dictee-ptt"
+# dictee-ptt gains the input group by itself when the session lacks it
+# (sg, or newgrp -c on Arch, which has no sg since shadow 4.20; #35).
+ExecStart=/usr/bin/dictee-ptt
 Restart=on-failure
 RestartSec=3
 EnvironmentFile=-%h/.config/dictee.conf

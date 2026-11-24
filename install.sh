@@ -1081,14 +1081,13 @@ EOF
     _clean_greeter_accounts
 
     # --- input group (dotool needs /dev/uinput) ---
-    # No reboot needed: dictee-ptt.service runs the daemon under
-    # `sg input -c …` so the new group is effective immediately.
-    # GUI apps started before the install (terminals, file managers)
-    # won't see the group until the next login, but dictee itself
-    # runs through dictee-ptt → sg input → /dev/uinput → fine.
+    # No reboot needed: dictee-ptt and dictee bridge the new group themselves
+    # (sg where shadow ships it, util-linux's `newgrp -c` on Arch, #35), so it
+    # is effective immediately. GUI apps started before the install won't see
+    # the group until the next login, but dictee does not depend on them.
     if ! id -nG "$REAL_USER" | grep -qw input; then
         usermod -aG input "$REAL_USER"
-        ok "$REAL_USER added to group 'input' (active immediately via dictee-ptt's sg wrapper)"
+        ok "$REAL_USER added to group 'input' (active immediately, dictee bridges it)"
     fi
 
     # --- docker group (LibreTranslate runs in Docker) ---

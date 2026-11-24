@@ -134,6 +134,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v5
+    # Fully faked evdev: no /dev/input, no /dev/uinput, no module needed, so it
+    # runs before the setup below and never skips. Guards the rescan cost that
+    # froze the keyboard for a second every 10 s (issue #33).
+    - name: Run keyboard rescan tests
+      run: python3 tests/test-keyboard-rescan.py
+    - name: Run input group bridge tests
+      run: python3 tests/test-ptt-group-bridge.py -v
     - name: Install Python test deps
       run: python3 -m pip install --user evdev
     # This job used to report OK on 6 tests out of 6 skipped: every case here
@@ -183,6 +190,8 @@ jobs:
       run: bash tests/test-mute-output.sh
     - name: Run login-screen session tests (all installers)
       run: bash tests/test-postinst-skips-greeter.sh
+    - name: Run dotool group bridge tests
+      run: bash tests/test-dotool-group-bridge.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest
