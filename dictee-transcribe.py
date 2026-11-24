@@ -61,7 +61,7 @@ except ImportError:
 _WHISPER_RUST_SIZES = ("tiny", "base", "small", "medium",
                        "large-v3-turbo", "large-v3-turbo-fp16", "large-v3")
 
-ASR_SPECS = ("parakeet-int8", "parakeet-fp32",
+ASR_SPECS = ("parakeet-int8", "parakeet-fp32", "parakeet-ultra",
              "whisper", "whisper-tiny", "whisper-small", "whisper-medium",
              "whisper-rust", "nemotron", "kyutai") + tuple(
              f"whisper-rust-{s}" for s in _WHISPER_RUST_SIZES)
@@ -96,6 +96,28 @@ def _whisper_rust_ggml_path(size=None):
     return ""
 
 
+def _tdt_ultra_dirs():
+    """Parakeet Ultra's model directories, the user's first."""
+    return (os.path.join(os.environ.get("XDG_DATA_HOME",
+                                        os.path.expanduser("~/.local/share")),
+                         "dictee", "tdt-ultra"),
+            "/usr/share/dictee/tdt-ultra")
+
+
+_ULTRA_ENCODERS = {"fp32": "encoder-model.onnx", "int8": "encoder-model.int8.onnx"}
+
+
+def _parakeet_ultra_quants():
+    """Quantizations of Parakeet Ultra on disk, fp32 first."""
+    return [q for q in ("fp32", "int8")
+            if any(os.path.isfile(os.path.join(d, _ULTRA_ENCODERS[q]))
+                   for d in _tdt_ultra_dirs())]
+
+
+def _parakeet_ultra_installed():
+    return bool(_parakeet_ultra_quants())
+
+
 def _conf_lang_env(*keys):
     """The language keys among `keys` that dictee.conf sets, for an isolated
     daemon: it does not read the conf, and without them faster-whisper
@@ -116,16 +138,30 @@ def asr_spec_to_daemon(spec):
     """
     if not spec or spec in ("f9", "default"):  # UI-combo sentinels meaning "use the F9 daemon"
         return None
+    # The v3 specs name their model: the conf's DICTEE_PARAKEET_MODEL reaches
+    # the subprocesses too, and with F9 on Ultra it would load Ultra.
     if spec == "parakeet-int8":
         return {"backend": "parakeet",
-                "env": {"DICTEE_PARAKEET_QUANT": "int8", "DICTEE_FORCE_CPU": "1"}}
+                "env": {"DICTEE_PARAKEET_MODEL": "v3", "DICTEE_PARAKEET_QUANT": "int8",
+                        "DICTEE_FORCE_CPU": "1"}}
     if spec == "parakeet-fp32":
         # fp32 = full-precision model on the best provider (GPU if present).
         # Explicitly clear any conf-level DICTEE_FORCE_CPU so an isolated fp32
         # run isn't pinned to CPU by the F9 config ("0" means "GPU allowed":
         # execution.rs only forces CPU on 1/true/yes).
         return {"backend": "parakeet",
-                "env": {"DICTEE_PARAKEET_QUANT": "fp32", "DICTEE_FORCE_CPU": "0"}}
+                "env": {"DICTEE_PARAKEET_MODEL": "v3", "DICTEE_PARAKEET_QUANT": "fp32",
+                        "DICTEE_FORCE_CPU": "0"}}
+    if spec == "parakeet-ultra":
+        # F9's quantization when Ultra has that file, else the installed one.
+        # int8 runs on the CPU (the daemon forces it); fp32 may use the GPU.
+        have = _parakeet_ultra_quants()
+        quant = (_read_conf().get("DICTEE_PARAKEET_QUANT") or "").strip().lower()
+        if quant not in have:
+            quant = have[0] if have else "fp32"
+        return {"backend": "parakeet",
+                "env": {"DICTEE_PARAKEET_MODEL": "ultra", "DICTEE_PARAKEET_QUANT": quant,
+                        "DICTEE_FORCE_CPU": "1" if quant == "int8" else "0"}}
     # whisper-rust before plain whisper: both share the "whisper-" prefix.
     # The daemon needs the ggml PATH (transcribe_daemon.rs reads
     # DICTEE_WHISPER_RUST_GGML): IsolatedAsrDaemon does not source
@@ -1933,15 +1969,21 @@ def _diarize_only_engine_args(nemotron3_dir):
     return [nemotron3_dir, "--engine", "nemotron3", "--pieces"]
 
 
-def _diarized_asr_spec(spec, f9_backend):
+def _diarized_asr_spec(spec, f9_backend, f9_parakeet_model=""):
     """The ASR spec a diarized run uses for `spec` (the window's model combo,
-    "" for the F9 daemon). Parakeet translates some recordings into English
+    "" for the F9 daemon). Parakeet v3 translates some recordings into English
     as soon as it hears more than a few seconds at once (the Masque, a LeCun
     interview, a theatre recording; codec, level, noise and sound colour ruled
     out on 2026-10-04), so a diarized run never transcribes with it:
-    Whisper-Rust does, with the model chosen in dictee-setup. Pure function,
+    Whisper-Rust does, with the model chosen in dictee-setup. Parakeet Ultra
+    does not drift (measured 2026-11-23): its spec, and F9 when F9 runs Ultra
+    (f9_parakeet_model, DICTEE_PARAKEET_MODEL), stay. Pure function,
     tests/test-transcribe-routing.py."""
-    if spec.startswith("parakeet") or (not spec and (f9_backend or "parakeet") == "parakeet"):
+    if spec == "parakeet-ultra":
+        return spec
+    f9_ultra = (f9_parakeet_model or "").strip().lower() == "ultra"
+    if spec.startswith("parakeet") or (
+            not spec and (f9_backend or "parakeet") == "parakeet" and not f9_ultra):
         return "whisper-rust"
     return spec
 
@@ -3055,12 +3097,17 @@ class TranscribeWindow(QDialog):
                     or "large-v3").strip()
         for _lbl, _spec in (
             (_("Default (F9)"), ""),
+            ("Parakeet Ultra", "parakeet-ultra"),
             ("Parakeet int8", "parakeet-int8"),
             ("Parakeet fp32", "parakeet-fp32"),
             (f"Whisper-Rust ({_wr_size})", "whisper-rust"),
             ("Nemotron", "nemotron"),
         ):
             self._asr_model_combo.addItem(_lbl, _spec)
+        # Parakeet Ultra: greyed out until dictee-setup has downloaded it.
+        if not _parakeet_ultra_installed():
+            self._asr_model_combo.model().item(
+                self._asr_model_combo.findData("parakeet-ultra")).setEnabled(False)
         # Canary transcribes in the dictation language (DICTEE_LANG_SOURCE,
         # the daemon's default "fr" without one), shown like the whisper
         # sizes; greyed out until dictee-setup has downloaded it.
@@ -4828,14 +4875,18 @@ class TranscribeWindow(QDialog):
         self._refresh_window_icon()
 
     def _grey_parakeet_while_diarizing(self, diarizing):
-        """A diarized run never transcribes with Parakeet (_diarized_asr_spec):
-        grey out its entries, and Default (F9) when F9 is Parakeet, and show
-        Whisper-Rust selected instead, so the combo says what will run."""
-        f9 = _read_conf().get("DICTEE_ASR_BACKEND", "parakeet") or "parakeet"
+        """A diarized run never transcribes with Parakeet v3 (_diarized_asr_spec):
+        grey out its entries, and Default (F9) when F9 is Parakeet v3, and show
+        Whisper-Rust selected instead, so the combo says what will run.
+        Parakeet Ultra stays available."""
+        conf = _read_conf()
+        f9 = conf.get("DICTEE_ASR_BACKEND", "parakeet") or "parakeet"
+        f9_v3 = (f9 == "parakeet"
+                 and (conf.get("DICTEE_PARAKEET_MODEL") or "").strip().lower() != "ultra")
         combo = self._asr_model_combo
         for spec in ("parakeet-int8", "parakeet-fp32", ""):
             index = combo.findData(spec)
-            if index < 0 or (spec == "" and f9 != "parakeet"):
+            if index < 0 or (spec == "" and not f9_v3):
                 continue
             combo.model().item(index).setEnabled(not diarizing)
         if diarizing and not combo.model().item(combo.currentIndex()).isEnabled():
@@ -5061,8 +5112,10 @@ class TranscribeWindow(QDialog):
         # whatever the combo or the CLI asked.
         _spec = self._asr_model_combo.currentData() if hasattr(self, "_asr_model_combo") else ""
         if diarize:
+            _conf_d = _read_conf()
             _spec = _diarized_asr_spec(
-                _spec or "", _read_conf().get("DICTEE_ASR_BACKEND", "parakeet"))
+                _spec or "", _conf_d.get("DICTEE_ASR_BACKEND", "parakeet"),
+                _conf_d.get("DICTEE_PARAKEET_MODEL", ""))
         self._isolated_recipe = asr_spec_to_daemon(_spec)
 
         # Create a new tab for this transcription (keep previous tabs)
@@ -7167,7 +7220,7 @@ def main():
                              "Empty = the choice persisted in the window. "
                              "An unavailable or retired engine is ignored.")
     parser.add_argument("--asr-model", default="",
-                        help="ASR model spec (parakeet-int8|parakeet-fp32|"
+                        help="ASR model spec (parakeet-int8|parakeet-fp32|parakeet-ultra|"
                              "whisper|whisper-rust|nemotron|kyutai|canary; whisper sizes "
                              "follow dictee-setup, or force one with "
                              "whisper-tiny|whisper-small|whisper-medium|"

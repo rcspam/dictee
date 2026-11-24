@@ -153,6 +153,16 @@ class DiarizedAsrSpecTests(unittest.TestCase):
         for spec in ("canary", "whisper-rust", "whisper-rust-large-v3", "kyutai", "nemotron"):
             self.assertEqual(_diarized_asr_spec(spec, "parakeet"), spec)
 
+    def test_parakeet_ultra_stays(self):
+        """Ultra does not drift into English (measured 2026-11-23)."""
+        for f9 in ("parakeet", "canary", ""):
+            self.assertEqual(_diarized_asr_spec("parakeet-ultra", f9), "parakeet-ultra")
+
+    def test_the_f9_daemon_on_parakeet_ultra_stays(self):
+        self.assertEqual(_diarized_asr_spec("", "parakeet", "ultra"), "")
+        self.assertEqual(_diarized_asr_spec("", "parakeet", "v3"), "whisper-rust")
+        self.assertEqual(_diarized_asr_spec("", "parakeet", ""), "whisper-rust")
+
 
 class PhaseTwoTests(unittest.TestCase):
     """How phase 2 transcribes the Nemotron 3 pieces."""

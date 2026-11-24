@@ -113,8 +113,9 @@ def _acquire_singleton_lock():
 
 def default_meeting_asr(conf):
     """The meeting's ASR model when none was chosen: the F9 engine when the
-    meeting offers it, else Whisper-Rust. Parakeet left meetings on
-    2026-10-04 (it turns some recordings into English), faster-whisper too.
+    meeting offers it, else Whisper-Rust. Parakeet v3 left meetings on
+    2026-10-04 (it turns some recordings into English), faster-whisper too;
+    Parakeet Ultra, which does not (measured 2026-11-23), came back.
 
     Whisper-Rust is listed per ENGINE: the model size follows the
     dictee-setup selection in dictee.conf, so the combo doesn't duplicate
@@ -122,6 +123,9 @@ def default_meeting_asr(conf):
     backend = (conf.get("DICTEE_ASR_BACKEND") or "").strip().lower()
     if backend in ("whisper-rust", "canary", "nemotron", "kyutai"):
         return backend
+    if (backend == "parakeet"
+            and (conf.get("DICTEE_PARAKEET_MODEL") or "").strip().lower() == "ultra"):
+        return "parakeet-ultra"
     return "whisper-rust"
 
 
@@ -285,6 +289,20 @@ def _canary_installed():
                for f in ("encoder-model.onnx", "encoder-model.int8.onnx"))
 
 
+def _parakeet_ultra_quant(conf):
+    """Quantization of the Parakeet Ultra files to load: F9's when Ultra has
+    that file, else the installed one (fp32 first); None when Ultra is not
+    installed."""
+    files = {"fp32": "encoder-model.onnx", "int8": "encoder-model.int8.onnx"}
+    have = [q for q in ("fp32", "int8")
+            if any(os.path.isfile(os.path.join(d, files[q]))
+                   for d in _data_dirs("tdt-ultra"))]
+    wanted = (conf.get("DICTEE_PARAKEET_QUANT") or "").strip().lower()
+    if wanted in have:
+        return wanted
+    return have[0] if have else None
+
+
 def live_asr_daemon(spec, conf, sock):
     """(command, environment additions) of the isolated daemon that
     transcribes the live preview's turns with `spec`, listening on `sock`;
@@ -311,6 +329,13 @@ def live_asr_daemon(spec, conf, sock):
     elif spec == "kyutai":
         env["DICTEE_ASR_BACKEND"] = "kyutai"
         cmd = ["transcribe-daemon-kyutai", "--socket", sock]
+    elif spec == "parakeet-ultra":
+        quant = _parakeet_ultra_quant(conf)
+        if quant is None:
+            return None, "Parakeet Ultra n'est pas installé (voir dictee-setup)"
+        env.update(DICTEE_ASR_BACKEND="parakeet", DICTEE_PARAKEET_MODEL="ultra",
+                   DICTEE_PARAKEET_QUANT=quant)
+        cmd = ["transcribe-daemon", "--socket", sock]
     else:
         return None, f"modèle inconnu : {spec}"
     if not shutil.which(cmd[0]):
@@ -1415,13 +1440,15 @@ class MeetingWindow(QWidget):
         self._model_combo = QComboBox()
         # Whisper-Rust is listed per ENGINE: the model size follows the
         # dictee-setup selection (DICTEE_WHISPER_RUST_MODEL), shown in
-        # parentheses (snapshot at window build). Parakeet and faster-whisper
-        # left the list on 2026-10-04: Parakeet turns some recordings into
-        # English. Entries this machine cannot run are greyed out.
+        # parentheses (snapshot at window build). Parakeet v3 and
+        # faster-whisper left the list on 2026-10-04: v3 turns some recordings
+        # into English; Parakeet Ultra does not and is listed. Entries this
+        # machine cannot run are greyed out.
         _conf = self._conf_dict()
         _wr_size = (_conf.get("DICTEE_WHISPER_RUST_MODEL") or "large-v3").strip()
         _lang = (_conf.get("DICTEE_LANG_SOURCE") or "fr").strip()
         _entries = [(f"Whisper-Rust ({_wr_size})", "whisper-rust"),
+                    ("Parakeet Ultra", "parakeet-ultra"),
                     ("Nemotron", "nemotron"),
                     (f"Canary ({_lang})", "canary")]
         # Kyutai ships in the CUDA package only — offering it where the binary
@@ -2332,8 +2359,8 @@ class MeetingWindow(QWidget):
     def _start_live_preview(self):
         """The live preview: Nemotron 3 in low latency cuts the recording by
         voices, the chosen ASR model transcribes each turn on an isolated
-        daemon (Parakeet's F9 daemon is never used: it turns some recordings
-        into English). The recording does not depend on it: without the
+        daemon (the F9 daemon is never used, even for Parakeet Ultra: the
+        meeting's model is its own choice). The recording does not depend on it: without the
         models, the meeting is recorded and analysed at Stop."""
         diar_dir = _nemotron3_dir()
         if diar_dir is None or not shutil.which("diarize-only"):

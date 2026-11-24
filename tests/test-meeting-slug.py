@@ -19,6 +19,11 @@ def test_default_meeting_asr():
     assert ml.default_meeting_asr({"DICTEE_ASR_BACKEND": "parakeet"}) == "whisper-rust"
     assert ml.default_meeting_asr({"DICTEE_ASR_BACKEND": "whisper"}) == "whisper-rust"
     assert ml.default_meeting_asr({}) == "whisper-rust"
+    # Parakeet Ultra does not drift into English: it stays the meeting's model
+    assert ml.default_meeting_asr({"DICTEE_ASR_BACKEND": "parakeet",
+                                   "DICTEE_PARAKEET_MODEL": "ultra"}) == "parakeet-ultra"
+    assert ml.default_meeting_asr({"DICTEE_ASR_BACKEND": "parakeet",
+                                   "DICTEE_PARAKEET_MODEL": "v3"}) == "whisper-rust"
 
 
 def test_analysis_opens_the_live_preview_when_it_covers_the_meeting(tmp_path):
@@ -99,6 +104,33 @@ def test_live_asr_daemon_says_what_is_missing(monkeypatch, tmp_path):
         "whisper-rust", {"DICTEE_WHISPER_RUST_MODEL": "large-v3-turbo"}, "/tmp/s.sock")
     assert env["DICTEE_WHISPER_RUST_GGML"].endswith("ggml-large-v3-turbo.bin")
 
+
+def _ultra(tmp_path, *files):
+    d = tmp_path / "tdt-ultra"
+    d.mkdir(exist_ok=True)
+    for f in files:
+        (d / f).write_bytes(b"")
+
+
+def test_live_asr_daemon_parakeet_ultra(monkeypatch, tmp_path):
+    monkeypatch.setattr(ml, "_data_dirs", lambda name: (str(tmp_path / name),))
+    monkeypatch.setattr(ml.shutil, "which", lambda name: f"/usr/bin/{name}")
+    cmd, why = ml.live_asr_daemon("parakeet-ultra", {}, "/tmp/s.sock")
+    assert cmd is None and "Ultra" in why
+    _ultra(tmp_path, "encoder-model.onnx")
+    cmd, env = ml.live_asr_daemon("parakeet-ultra", {}, "/tmp/s.sock")
+    assert cmd == ["transcribe-daemon", "--socket", "/tmp/s.sock"]
+    assert env["DICTEE_ASR_BACKEND"] == "parakeet"
+    assert env["DICTEE_PARAKEET_MODEL"] == "ultra"
+    assert env["DICTEE_PARAKEET_QUANT"] == "fp32"
+    assert env["DICTEE_DAEMON_NO_PROVIDER"] == "1"
+    # F9's quantization when Ultra has it, the installed one otherwise
+    conf = {"DICTEE_PARAKEET_QUANT": "int8"}
+    assert ml.live_asr_daemon("parakeet-ultra", conf, "/tmp/s.sock")[1][
+        "DICTEE_PARAKEET_QUANT"] == "fp32"
+    _ultra(tmp_path, "encoder-model.int8.onnx")
+    assert ml.live_asr_daemon("parakeet-ultra", conf, "/tmp/s.sock")[1][
+        "DICTEE_PARAKEET_QUANT"] == "int8"
 
 
 def _window(value, preview_value, whole=True):

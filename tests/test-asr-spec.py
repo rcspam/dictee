@@ -10,14 +10,16 @@ spec.loader.exec_module(dt)
 def test_parakeet_int8():
     assert dt.asr_spec_to_daemon("parakeet-int8") == {
         "backend": "parakeet",
-        "env": {"DICTEE_PARAKEET_QUANT": "int8", "DICTEE_FORCE_CPU": "1"},
+        "env": {"DICTEE_PARAKEET_MODEL": "v3", "DICTEE_PARAKEET_QUANT": "int8",
+                "DICTEE_FORCE_CPU": "1"},
     }
 
 
 def test_parakeet_fp32():
     assert dt.asr_spec_to_daemon("parakeet-fp32") == {
         "backend": "parakeet",
-        "env": {"DICTEE_PARAKEET_QUANT": "fp32", "DICTEE_FORCE_CPU": "0"},
+        "env": {"DICTEE_PARAKEET_MODEL": "v3", "DICTEE_PARAKEET_QUANT": "fp32",
+                "DICTEE_FORCE_CPU": "0"},
     }
 
 
@@ -228,3 +230,36 @@ def test_no_language_in_the_conf_leaves_the_daemon_default(monkeypatch):
     monkeypatch.setattr(dt, "_read_conf", lambda: {})
     for spec in ("whisper", "nemotron", "canary"):
         assert "DICTEE_LANG_SOURCE" not in dt.asr_spec_to_daemon(spec)["env"], spec
+
+
+def _ultra_files(tmp_path, monkeypatch, *files):
+    d = tmp_path / "tdt-ultra"
+    d.mkdir(exist_ok=True)
+    for f in files:
+        (d / f).write_bytes(b"")
+    monkeypatch.setattr(dt, "_tdt_ultra_dirs", lambda: (str(d),))
+
+
+def test_parakeet_ultra_takes_f9_quant_when_present(tmp_path, monkeypatch):
+    _ultra_files(tmp_path, monkeypatch, "encoder-model.onnx", "encoder-model.int8.onnx")
+    monkeypatch.setattr(dt, "_read_conf", lambda: {"DICTEE_PARAKEET_QUANT": "int8"})
+    assert dt.asr_spec_to_daemon("parakeet-ultra") == {
+        "backend": "parakeet",
+        "env": {"DICTEE_PARAKEET_MODEL": "ultra", "DICTEE_PARAKEET_QUANT": "int8",
+                "DICTEE_FORCE_CPU": "1"},
+    }
+
+
+def test_parakeet_ultra_falls_back_to_installed_quant(tmp_path, monkeypatch):
+    _ultra_files(tmp_path, monkeypatch, "encoder-model.onnx")
+    monkeypatch.setattr(dt, "_read_conf", lambda: {"DICTEE_PARAKEET_QUANT": "int8"})
+    assert dt.asr_spec_to_daemon("parakeet-ultra")["env"] == {
+        "DICTEE_PARAKEET_MODEL": "ultra", "DICTEE_PARAKEET_QUANT": "fp32",
+        "DICTEE_FORCE_CPU": "0"}
+
+
+def test_parakeet_ultra_installed(tmp_path, monkeypatch):
+    _ultra_files(tmp_path, monkeypatch)
+    assert dt._parakeet_ultra_installed() is False
+    _ultra_files(tmp_path, monkeypatch, "encoder-model.int8.onnx")
+    assert dt._parakeet_ultra_installed() is True
