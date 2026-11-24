@@ -239,7 +239,10 @@ def _asr_service_exists(key):
     if key == "parakeet":
         if not shutil.which("transcribe-daemon"):
             return False
-        return os.path.isdir("/usr/share/dictee/tdt") or os.path.isdir(os.path.join(data_dir, "tdt"))
+        # v3 (tdt) or Ultra (tdt-ultra): either one makes Parakeet usable
+        return any(os.path.isdir(os.path.join(base, sub))
+                   for base in ("/usr/share/dictee", data_dir)
+                   for sub in ("tdt", "tdt-ultra"))
     if key == "canary":
         # Canary uses the same Rust binary as Parakeet (transcribe-daemon --canary).
         # Canary is a heavy encoder — only usable with CUDA acceleration in

@@ -332,7 +332,7 @@ PlasmoidItem {
     property string listAudioSourcesCmd: "dictee-audio-sources"
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
-        "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
+        "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ] || [ -d /usr/share/dictee/tdt-ultra ] || [ -d \"$dd/tdt-ultra\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
         // Canary: Rust native (transcribe-daemon --canary), needs CUDA libs bundled
         // (CPU-only install is too slow in practice → hide Canary from the UI)
         "{ [ -d /usr/share/dictee/canary ] || [ -f \"$dd/canary/encoder-model.onnx\" ]; } " +

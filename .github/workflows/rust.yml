@@ -84,7 +84,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y python3-pyqt6 python3-pyqt6.qtsvg \
-                                python3-pyqt6.qtmultimedia python3-evdev
+                                python3-pyqt6.qtmultimedia python3-evdev python3-pytest
     # Without this the job was green having run 1 case out of 9: every
     # uinput-backed test skipped itself on "/dev/uinput cannot be opened for
     # writing", leaving only the Qt fallback. The module is loadable on hosted
@@ -128,6 +128,11 @@ jobs:
         QT_QPA_PLATFORM: offscreen
     - name: Run silence-threshold floor tests
       run: python3 tests/offscreen-check_silence_floor.py
+      env:
+        QT_QPA_PLATFORM: offscreen
+    # pytest-style files: plain python3 would only import them
+    - name: Run Parakeet Ultra setup and model list tests
+      run: python3 -m pytest -q tests/test-parakeet-ultra-setup.py tests/test-parakeet-ultra-models.py
       env:
         QT_QPA_PLATFORM: offscreen
 
@@ -177,6 +182,8 @@ jobs:
       run: bash tests/test-apply-continuation.sh
     - name: Run dotool group bridge tests
       run: bash tests/test-dotool-group-bridge.sh
+    - name: Run dictee-switch-backend parakeet tests
+      run: bash tests/test-switch-backend-parakeet.sh
     - name: Run mute-output decision tests
       run: bash tests/test-mute-output.sh
     - name: Run terminal prompt tests (install.sh, uninstall.sh)

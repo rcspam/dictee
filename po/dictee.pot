@@ -4014,3 +4014,39 @@ msgstr ""
 #: dictee-transcribe.py
 msgid "Close"
 msgstr ""
+
+#: dictee-setup.py
+#, no-python-format
+msgid ""
+"<b>Parakeet Ultra 0.6B — FP32</b><br><br>Parakeet-TDT 0.6B v3 trained "
+"further by Moondream: same architecture, same 25 languages, same speed and "
+"memory, different weights.<br><br>Measured on French: 5.5 % word error rate "
+"on read speech (7.7 % for v3), and no switch to English on the recordings "
+"where v3 drifts (meetings, phone audio, long memos).<br><br>License CC-"
+"BY-4.0 (Moondream)."
+msgstr ""
+
+#: dictee-setup.py
+msgid ""
+"<b>Parakeet Ultra 0.6B — int8 quantized</b><br><br>Same model as Ultra FP32 "
+"with 8-bit quantized weights: 650 MB on disk / RAM instead of 2.4 GB, faster"
+" on CPU.<br><br>Measured on French: same accuracy as v3 int8 on read speech,"
+" and no switch to English where v3 int8 drifts (meetings).<br><br><b>Always "
+"runs on the CPU</b>: int8 is not usable on the CUDA GPU runtime."
+msgstr ""
+
+#: dictee-setup.py
+msgid "Active model:"
+msgstr ""
+
+#: dictee-setup.py
+msgid ""
+"Parakeet v3 trained further by Moondream (~2.5 GB). Better French, no switch"
+" to English on hard recordings. Same speed and memory as v3."
+msgstr ""
+
+#: dictee-setup.py
+msgid ""
+"Quantized Ultra (~650 MB). Always runs on the CPU: pick it when there is no "
+"GPU, or too little VRAM for FP32."
+msgstr ""

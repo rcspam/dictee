@@ -5714,3 +5714,56 @@ msgstr "Altoparlanti: disattivati per impostazione predefinita, perché ciò che
 #: dictee-setup.py
 msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
 msgstr "Cuffie: invariate per impostazione predefinita, nulla raggiunge il microfono. Abbassale per continuare a sentire una chiamata più piano."
+
+#: dictee-setup.py
+#, no-python-format
+msgid ""
+"<b>Parakeet Ultra 0.6B — FP32</b><br><br>Parakeet-TDT 0.6B v3 trained "
+"further by Moondream: same architecture, same 25 languages, same speed and "
+"memory, different weights.<br><br>Measured on French: 5.5 % word error rate "
+"on read speech (7.7 % for v3), and no switch to English on the recordings "
+"where v3 drifts (meetings, phone audio, long memos).<br><br>License CC-"
+"BY-4.0 (Moondream)."
+msgstr ""
+"<b>Parakeet Ultra 0.6B — FP32</b><br><br>Parakeet-TDT 0.6B v3 addestrato più"
+" a lungo da Moondream: stessa architettura, stesse 25 lingue, stessa "
+"velocità e memoria, pesi diversi.<br><br>Misurato in francese: 5,5 % di "
+"errori sulle parole nel parlato letto (7,7 % con v3), e nessun passaggio "
+"all'inglese sulle registrazioni in cui v3 deriva (riunioni, audio "
+"telefonico, memo lunghi).<br><br>Licenza CC-BY-4.0 (Moondream)."
+
+#: dictee-setup.py
+msgid ""
+"<b>Parakeet Ultra 0.6B — int8 quantized</b><br><br>Same model as Ultra FP32 "
+"with 8-bit quantized weights: 650 MB on disk / RAM instead of 2.4 GB, faster"
+" on CPU.<br><br>Measured on French: same accuracy as v3 int8 on read speech,"
+" and no switch to English where v3 int8 drifts (meetings).<br><br><b>Always "
+"runs on the CPU</b>: int8 is not usable on the CUDA GPU runtime."
+msgstr ""
+"<b>Parakeet Ultra 0.6B — quantizzato int8</b><br><br>Stesso modello di Ultra"
+" FP32 con pesi quantizzati a 8 bit: 650 MB su disco / in RAM invece di 2,4 "
+"GB, più veloce su CPU.<br><br>Misurato in francese: stessa precisione di v3 "
+"int8 nel parlato letto, e nessun passaggio all'inglese dove v3 int8 deriva "
+"(riunioni).<br><br><b>Gira sempre sulla CPU</b>: int8 non è utilizzabile con"
+" il runtime GPU CUDA."
+
+#: dictee-setup.py
+msgid "Active model:"
+msgstr "Modello attivo:"
+
+#: dictee-setup.py
+msgid ""
+"Parakeet v3 trained further by Moondream (~2.5 GB). Better French, no switch"
+" to English on hard recordings. Same speed and memory as v3."
+msgstr ""
+"Parakeet v3 addestrato più a lungo da Moondream (~2,5 GB). Francese "
+"migliore, nessun passaggio all'inglese sulle registrazioni difficili. Stessa"
+" velocità e memoria di v3."
+
+#: dictee-setup.py
+msgid ""
+"Quantized Ultra (~650 MB). Always runs on the CPU: pick it when there is no "
+"GPU, or too little VRAM for FP32."
+msgstr ""
+"Ultra quantizzato (~650 MB). Gira sempre sulla CPU: sceglilo se non c'è una "
+"GPU o se la VRAM non basta per FP32."
