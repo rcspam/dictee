@@ -119,6 +119,7 @@ Pour les chemins d'installation détaillés (`.deb`/`.rpm` manuels, prérequis G
 | Backend | Langues | Taille modèle | Latence chaude | Notes |
 |---------|---------|---------------|----------------|-------|
 | **Parakeet-TDT 0.6B v3** | 25 | ~2,5 Go | ~0,8s CPU · ~0,16s GPU | Par défaut, ponctuation native |
+| **Parakeet Ultra 0.6B** | 25 | ~2,5 Go (int8 ~650 Mo) | comme v3 | v3 entraîné plus longtemps par Moondream : meilleur en français, ne bascule pas en anglais sur les enregistrements difficiles ; proposé en premier à l'installation |
 | **Canary-1B v2** | 25 | ~5 Go | ~0,7s GPU | Traduction intégrée (25 ↔ EN, 48 paires) |
 | **faster-whisper** | 99 | ~500 Mo–3 Go | ~0,3s | Large couverture linguistique |
 | **Vosk** | 20+ | ~50 Mo | ~1,5s | Léger, strictement hors ligne |
@@ -473,7 +474,7 @@ Pour les rapports de bugs et contournements, voir [Troubleshooting](https://gith
 
 ## Crédits
 
-Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes) — bibliothèque Rust pour l'inférence NVIDIA Parakeet via ONNX Runtime. L'implémentation Rust du backend Canary a initialement été portée depuis [onnx-asr](https://github.com/istupakov/onnx-asr) par [Ivan Stupakov](https://github.com/istupakov) et est désormais entièrement autonome. Les modèles ONNX Parakeet et Canary sont fournis par NVIDIA (téléchargés séparément depuis HuggingFace, non redistribués par ce projet).
+Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes) — bibliothèque Rust pour l'inférence NVIDIA Parakeet via ONNX Runtime. L'implémentation Rust du backend Canary a initialement été portée depuis [onnx-asr](https://github.com/istupakov/onnx-asr) par [Ivan Stupakov](https://github.com/istupakov) et est désormais entièrement autonome. Les modèles ONNX Parakeet et Canary sont fournis par NVIDIA (téléchargés séparément depuis HuggingFace, non redistribués par ce projet). [Parakeet Ultra](https://huggingface.co/moondream/parakeet-ultra) est de Moondream (CC-BY-4.0), téléchargé depuis son export ONNX sur HuggingFace.
 
 La simulation de saisie clavier utilise [dotool](https://sr.ht/~geb/dotool/) par geb (GPL-3.0).
 

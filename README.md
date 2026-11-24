@@ -119,6 +119,7 @@ For detailed install paths (manual `.deb`/`.rpm`, GPU prerequisites, AUR, from s
 | Backend | Languages | Model size | Warm latency | Notes |
 |---------|-----------|------------|--------------|-------|
 | **Parakeet-TDT 0.6B v3** | 25 | ~2.5 GB | ~0.8s CPU · ~0.16s GPU | Default, native punctuation |
+| **Parakeet Ultra 0.6B** | 25 | ~2.5 GB (int8 ~650 MB) | same as v3 | v3 trained further by Moondream: better French, no switch to English on hard recordings; proposed first at install |
 | **Canary-1B v2** | 25 | ~5 GB | ~0.7s GPU | Built-in translation (25 ↔ EN, 48 pairs) |
 | **faster-whisper** | 99 | ~500 MB–3 GB | ~0.3s | Wide language coverage |
 | **Vosk** | 20+ | ~50 MB | ~1.5s | Lightweight, strict offline |
@@ -490,7 +491,7 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 
 ## Credits
 
-The transcription engine builds on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [Enes Altun](https://github.com/altunenes) — Rust library for NVIDIA Parakeet inference via ONNX Runtime. The Rust Canary implementation was originally ported from [onnx-asr](https://github.com/istupakov/onnx-asr) by [Ivan Stupakov](https://github.com/istupakov) and is now fully self-contained. Parakeet and Canary ONNX models are provided by NVIDIA (downloaded separately from HuggingFace, not redistributed by this project).
+The transcription engine builds on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [Enes Altun](https://github.com/altunenes) — Rust library for NVIDIA Parakeet inference via ONNX Runtime. The Rust Canary implementation was originally ported from [onnx-asr](https://github.com/istupakov/onnx-asr) by [Ivan Stupakov](https://github.com/istupakov) and is now fully self-contained. Parakeet and Canary ONNX models are provided by NVIDIA (downloaded separately from HuggingFace, not redistributed by this project). [Parakeet Ultra](https://huggingface.co/moondream/parakeet-ultra) is by Moondream (CC-BY-4.0), downloaded from its ONNX export on HuggingFace.
 
 Keyboard input simulation uses [dotool](https://sr.ht/~geb/dotool/) by geb (GPL-3.0).
 
