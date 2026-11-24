@@ -471,12 +471,18 @@ msgid "ASR:"
 msgstr "ASR:"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:577
-msgid "Parakeet (precise)"
-msgstr "Parakeet (точний)"
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (точний)"
+
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (точний)"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:578
-msgid "Parakeet (fast)"
-msgstr "Parakeet (швидкий)"
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (швидкий)"
+
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (швидкий)"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:652
 msgid "LLM"

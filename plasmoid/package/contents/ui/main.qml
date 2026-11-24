@@ -187,6 +187,11 @@ PlasmoidItem {
                 if (parts.length >= 15) {
                     root.currentWhisperRustModel = parts[14] || "large-v3"
                 }
+                if (parts.length >= 16) {
+                    // Absent key = v3 (the daemon's default)
+                    root.currentParakeetModel =
+                        ((parts[15] || "").toLowerCase() === "ultra") ? "ultra" : "v3"
+                }
                 if (parts.length >= 13) {
                     var fc = (parts[12] || "0").toLowerCase()
                     root.forceCpuActive = (fc === "1" || fc === "true" || fc === "yes")
@@ -388,7 +393,7 @@ PlasmoidItem {
     property string currentLangTarget: "en"
     property var availableLangTarget: []
     property real backendUserChangeTime: 0  // timestamp of last user-initiated backend change
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT|$DICTEE_PP_SHORT_TEXT|$DICTEE_TRPP_SHORT_TEXT|$DICTEE_LLM_POSTPROCESS|$DICTEE_PTT_KEY|$DICTEE_PARAKEET_QUANT|$DICTEE_FORCE_CPU|$DICTEE_WHISPER_MODEL|$DICTEE_WHISPER_RUST_MODEL\"'"
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT|$DICTEE_PP_SHORT_TEXT|$DICTEE_TRPP_SHORT_TEXT|$DICTEE_LLM_POSTPROCESS|$DICTEE_PTT_KEY|$DICTEE_PARAKEET_QUANT|$DICTEE_FORCE_CPU|$DICTEE_WHISPER_MODEL|$DICTEE_WHISPER_RUST_MODEL|$DICTEE_PARAKEET_MODEL\"'"
     property string pttKey: "F9"
     // Map evdev keycode (DICTEE_PTT_KEY) to a human label. Covers F1..F24 +
     // common keys; unknown codes fall back to "key{kc}". Mirrors the table
@@ -410,6 +415,7 @@ PlasmoidItem {
     property bool shortTextEnabled: true
     property bool llmPostprocessEnabled: false
     property string currentParakeetQuant: "fp32"  // "fp32" or "int8" — Parakeet model variant
+    property string currentParakeetModel: "v3"    // "v3" or "ultra" — DICTEE_PARAKEET_MODEL
     // Whisper model sizes selected in dictee-setup (dictee.conf) — shown in
     // parentheses in the ASR combo (the combo picks the ENGINE only).
     property string currentWhisperModel: "small"
@@ -483,7 +489,11 @@ PlasmoidItem {
     property string listAudioSourcesCmd: "dictee-audio-sources"
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
-        "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
+        // Parakeet: "parakeet" when any model is there, plus one line per
+        // model (v3 in tdt, Ultra in tdt-ultra) to grey out the other entries.
+        "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ] || [ -d /usr/share/dictee/tdt-ultra ] || [ -d \"$dd/tdt-ultra\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
+        "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && echo parakeet-v3; " +
+        "{ [ -d /usr/share/dictee/tdt-ultra ] || [ -d \"$dd/tdt-ultra\" ]; } && echo parakeet-ultra; " +
         // Canary: Rust native (transcribe-daemon --canary), needs CUDA libs bundled
         // (CPU-only install is too slow in practice → hide Canary from the UI)
         "{ [ -d /usr/share/dictee/canary ] || [ -f \"$dd/canary/encoder-model.onnx\" ]; } " +

@@ -556,22 +556,29 @@ RowLayout {
         QQC2.ComboBox {
             id: asrCombo
             Kirigami.Theme.inherit: true
-            // Parakeet has two variants visible as separate entries (cosmetic
-            // split — same backend, different quantization). When the user
-            // picks one, we switch backend AND quantization.
+            // Parakeet has four variants visible as separate entries (same
+            // backend; model Ultra or v3, quantization fp32 or int8). When the
+            // user picks one, we switch backend, model AND quantization.
             // Labels are built dynamically with i18n() (not stored as plain
             // strings in the ListModel) so they translate properly.
             model: ListModel {
                 id: asrModel
                 Component.onCompleted: {
-                    append({ "text": i18n("Parakeet (precise)"), "value": "parakeet", "quant": "fp32" })
-                    append({ "text": i18n("Parakeet (fast)"),    "value": "parakeet", "quant": "int8" })
-                    append({ "text": "Canary",   "value": "canary",  "quant": "" })
-                    append({ "text": "Vosk",     "value": "vosk",    "quant": "" })
-                    append({ "text": "Whisper",  "value": "whisper", "quant": "" })
-                    append({ "text": "Whisper-Rust", "value": "whisper-rust", "quant": "" })
-                    append({ "text": "Nemotron", "value": "nemotron", "quant": "" })
-                    append({ "text": "Kyutai (fr/en)", "value": "kyutai", "quant": "" })
+                    append({ "text": i18n("Parakeet Ultra (precise)"), "value": "parakeet", "pmodel": "ultra", "quant": "fp32" })
+                    append({ "text": i18n("Parakeet Ultra (fast)"),    "value": "parakeet", "pmodel": "ultra", "quant": "int8" })
+                    append({ "text": i18n("Parakeet v3 (precise)"),    "value": "parakeet", "pmodel": "v3",    "quant": "fp32" })
+                    append({ "text": i18n("Parakeet v3 (fast)"),       "value": "parakeet", "pmodel": "v3",    "quant": "int8" })
+                    append({ "text": "Canary",   "value": "canary",  "pmodel": "", "quant": "" })
+                    append({ "text": "Vosk",     "value": "vosk",    "pmodel": "", "quant": "" })
+                    append({ "text": "Whisper",  "value": "whisper", "pmodel": "", "quant": "" })
+                    append({ "text": "Whisper-Rust", "value": "whisper-rust", "pmodel": "", "quant": "" })
+                    append({ "text": "Nemotron", "value": "nemotron", "pmodel": "", "quant": "" })
+                    append({ "text": "Kyutai (fr/en)", "value": "kyutai", "pmodel": "", "quant": "" })
+                    // The combo's own onCompleted may run before these rows
+                    // exist (it then falls back to row 0, now Parakeet Ultra)
+                    // and only re-syncs when a conf value CHANGES: sync here.
+                    asrCombo.relabelWhisper()
+                    asrCombo.syncIndex()
                 }
             }
             textRole: "text"
@@ -590,12 +597,13 @@ RowLayout {
                 }
             }
             function syncIndex() {
-                // Match both backend AND (for Parakeet) the active quantization
+                // Match both backend AND (for Parakeet) the active model + quantization
                 for (var i = 0; i < asrModel.count; i++) {
                     var item = asrModel.get(i)
                     if (item.value !== root.currentAsrBackend) continue
                     if (item.value === "parakeet") {
-                        if (item.quant === root.currentParakeetQuant) {
+                        if (item.quant === root.currentParakeetQuant
+                                && item.pmodel === root.currentParakeetModel) {
                             currentIndex = i
                             return
                         }
@@ -614,18 +622,24 @@ RowLayout {
                 target: root
                 function onCurrentAsrBackendChanged() { asrCombo.syncIndex() }
                 function onCurrentParakeetQuantChanged() { asrCombo.syncIndex() }
+                function onCurrentParakeetModelChanged() { asrCombo.syncIndex() }
                 function onCurrentWhisperModelChanged() { asrCombo.relabelWhisper() }
                 function onCurrentWhisperRustModelChanged() { asrCombo.relabelWhisper() }
             }
             delegate: QQC2.ItemDelegate {
                 width: parent ? parent.width : 0
                 text: model.text
-                enabled: root.installedAsr.indexOf(model.value) !== -1
+                enabled: asrCombo.entryInstalled(model.value, model.pmodel)
                 opacity: enabled ? 1.0 : 0.4
+            }
+            // A Parakeet entry needs its own model (parakeet-v3 / parakeet-ultra)
+            function entryInstalled(value, pmodel) {
+                var key = (value === "parakeet" && pmodel) ? "parakeet-" + pmodel : value
+                return root.installedAsr.indexOf(key) !== -1
             }
             onActivated: function(index) {
                 var item = asrModel.get(index)
-                if (root.installedAsr.indexOf(item.value) === -1) {
+                if (!entryInstalled(item.value, item.pmodel)) {
                     syncIndex()
                     return
                 }
@@ -636,8 +650,11 @@ RowLayout {
                 // - quant AVANT asr : set_conf int8+FORCE_CPU=1, pas de
                 //   restart car Whisper actif (wrapper skip si backend != parakeet)
                 // - puis asr parakeet : démarre direct avec int8+FORCE_CPU=1 → CPU
+                // `parakeet <model> <quant>` writes both keys with one restart
                 var needQuant = (item.value === "parakeet" && item.quant !== "" &&
-                                 item.quant !== root.currentParakeetQuant)
+                                 (item.quant !== root.currentParakeetQuant
+                                  || item.pmodel !== root.currentParakeetModel))
+                var pcmd = "dictee-switch-backend parakeet " + item.pmodel + " " + item.quant
                 var needAsr = (item.value !== root.currentAsrBackend)
                 if (needQuant && needAsr) {
                     // Plasma5Support.DataSource.run() ne passe PAS par un shell
@@ -645,13 +662,12 @@ RowLayout {
                     // séquentielle. Sinon les 2 commandes tournent en parallèle
                     // et le daemon peut démarrer avec un état conf transitoire
                     // incohérent → spike VRAM (vérifié 2026-05-21).
-                    executable.run("bash -c 'dictee-switch-backend quant " +
-                                   item.quant + " && dictee-switch-backend asr " +
+                    executable.run("bash -c '" + pcmd + " && dictee-switch-backend asr " +
                                    item.value + "'")
                 } else if (needAsr) {
                     executable.run("dictee-switch-backend asr " + item.value)
                 } else if (needQuant) {
-                    executable.run("dictee-switch-backend quant " + item.quant)
+                    executable.run(pcmd)
                 }
             }
             Layout.preferredWidth: Kirigami.Units.gridUnit * 10
