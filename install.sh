@@ -1106,7 +1106,7 @@ EOF
     fi
 
     # --- Model directories (writable for dictee-setup) ---
-    for d in "$MODEL_DIR" "$MODEL_DIR/tdt" "$MODEL_DIR/sortformer" "$MODEL_DIR/nemotron"; do
+    for d in "$MODEL_DIR" "$MODEL_DIR/tdt" "$MODEL_DIR/tdt-ultra" "$MODEL_DIR/sortformer" "$MODEL_DIR/nemotron"; do
         mkdir -p "$d"
         chmod 777 "$d"
     done
