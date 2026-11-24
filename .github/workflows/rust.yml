@@ -111,13 +111,14 @@ jobs:
       env:
         XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
         QT_QPA_PLATFORM: offscreen
-    # Rides in this job for its Qt packages: all three load dictee-setup.py whole.
-    # pacman, sg and newgrp are stand-ins on a private PATH, nothing runs for real.
-    - name: Run install type (Arch), docker group bridge and retired models tests
+    # Rides in this job for its Qt packages: all four load dictee-setup.py whole.
+    # pacman, sg, newgrp and pip are stand-ins or captured, nothing runs for real.
+    - name: Run install type (Arch), docker group bridge, retired models and Whisper install tests
       run: |
         python3 tests/offscreen-check_install_type_arch.py
         python3 tests/offscreen-check_docker_group_bridge.py
         python3 tests/offscreen-check_retired_models.py
+        python3 tests/offscreen-check_whisper_install_pin.py
       env:
         QT_QPA_PLATFORM: offscreen
     # The sandboxed evdev loop on fake uinput keyboards: no key may stay
