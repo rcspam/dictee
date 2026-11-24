@@ -23,6 +23,7 @@ usage() {
     echo "  llm [true|false|toggle]   Toggle LLM post-processing"
     echo "  short_text [true|false|toggle]  Toggle short-text fix (both pp_normal + pp_translate)"
     echo "  quant [fp32|int8|toggle]  Switch Parakeet model variant (restarts daemon)"
+    echo "  parakeet <v3|ultra> <fp32|int8>  Switch Parakeet model and variant (restarts daemon)"
     echo "  force_cpu [true|false|toggle]   Force CPU mode for all ASR backends"
     echo ""
     echo "ASR backends:      parakeet, canary, vosk, whisper, whisper-rust, nemotron, kyutai"
@@ -166,9 +167,12 @@ asr)
     elif [ "$2" = "parakeet" ]; then
         # Show the active model variant (FP32 / INT8) in the notification
         _pq=$(grep '^DICTEE_PARAKEET_QUANT=' "$CONF" 2>/dev/null | cut -d= -f2 || true)
+        _pm=$(grep '^DICTEE_PARAKEET_MODEL=' "$CONF" 2>/dev/null | cut -d= -f2 || true)
+        _pm_label=""
+        [ "$_pm" = "ultra" ] && _pm_label="Ultra "
         case "${_pq:-fp32}" in
-            int8) _notify_detail=" (INT8)" ;;
-            fp32|*) _notify_detail=" (FP32)" ;;
+            int8) _notify_detail=" (${_pm_label}INT8)" ;;
+            fp32|*) _notify_detail=" (${_pm_label}FP32)" ;;
         esac
     fi
     echo "ASR backend: $2${_notify_detail} (${svc}.service)"
@@ -343,6 +347,22 @@ short_text)
     echo "Short-text: $val"
     ;;
 
+parakeet)
+    # Parakeet model AND quantization in one call (plasmoid, tray): writes
+    # DICTEE_PARAKEET_MODEL, then goes on with `quant` below, so the daemon
+    # restarts once with both values.
+    case "${2:-}" in
+        v3|ultra) ;;
+        *) echo "Error: parakeet expects v3 or ultra, then fp32 or int8" >&2; usage ;;
+    esac
+    case "${3:-}" in
+        fp32|int8) ;;
+        *) echo "Error: parakeet expects v3 or ultra, then fp32 or int8" >&2; usage ;;
+    esac
+    set_conf "DICTEE_PARAKEET_MODEL" "$2"
+    _dbg "parakeet model: $2"
+    shift
+    ;&
 quant)
     # Parakeet quantization variant (fp32 | int8). Writes DICTEE_PARAKEET_QUANT
     # to dictee.conf and restarts dictee.service so the daemon picks up the
@@ -372,11 +392,13 @@ quant)
     # model variant is actually loaded (env var alone isn't enough — the
     # daemon reads it only at startup).
     set +eu; source "$CONF"; set -eu
+    _model_label="$val"
+    [ "${DICTEE_PARAKEET_MODEL:-v3}" = "ultra" ] && _model_label="Ultra $val"
     if [ "${DICTEE_ASR_BACKEND:-parakeet}" = "parakeet" ]; then
         systemctl --user restart dictee.service 2>/dev/null || true
-        notify_dictee 0 audio-input-microphone-symbolic "Parakeet model: $val (daemon restarting)"
+        notify_dictee 0 audio-input-microphone-symbolic "Parakeet model: $_model_label (daemon restarting)"
     else
-        notify_dictee 0 audio-input-microphone-symbolic "Parakeet model: $val (takes effect when Parakeet is active)"
+        notify_dictee 0 audio-input-microphone-symbolic "Parakeet model: $_model_label (takes effect when Parakeet is active)"
     fi
     (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
     echo "Parakeet quant: $val"

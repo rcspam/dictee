@@ -96,12 +96,23 @@ download_nemotron() {
     done
 }
 
+# A Parakeet model is present: v3 (tdt) or Ultra (tdt-ultra), FP32 or int8
+_tdt_present() {
+    local d
+    for d in "$TDT_DIR" "$MODEL_DIR/tdt-ultra"; do
+        if [ -f "$d/encoder-model.onnx" ] || [ -f "$d/encoder-model.int8.onnx" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Check if models already exist
 echo ""
 echo "=== Model check ==="
 echo ""
 
-if [ -f "$TDT_DIR/encoder-model.onnx" ] || [ -f "$TDT_DIR/encoder-model.int8.onnx" ]; then
+if _tdt_present; then
     echo "✓ TDT model present"
 else
     echo "⚠ TDT model missing — required for transcription"
@@ -119,7 +130,7 @@ else
     echo "  Nemotron model missing (optional, multilingual streaming)"
 fi
 
-if [ ! -f "$TDT_DIR/encoder-model.onnx" ] && [ ! -f "$TDT_DIR/encoder-model.int8.onnx" ]; then
+if ! _tdt_present; then
     echo ""
     echo "Run 'dictee-setup' to download the models."
 fi
@@ -133,7 +144,7 @@ fi
 echo ""
 echo "=== Models directory ==="
 CANARY_DIR="$MODEL_DIR/canary"
-for d in "$MODEL_DIR" "$TDT_DIR" "$NEMOTRON3_DIAR_DIR" "$NEMOTRON_DIR" "$CANARY_DIR"; do
+for d in "$MODEL_DIR" "$TDT_DIR" "$MODEL_DIR/tdt-ultra" "$NEMOTRON3_DIAR_DIR" "$NEMOTRON_DIR" "$CANARY_DIR"; do
     mkdir -p "$d"
     chmod 777 "$d"
 done
