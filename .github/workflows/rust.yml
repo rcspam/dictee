@@ -84,7 +84,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y python3-pyqt6 python3-pyqt6.qtsvg \
-                                python3-pyqt6.qtmultimedia python3-evdev
+                                python3-pyqt6.qtmultimedia python3-evdev python3-pytest
     # Without this the job was green having run 1 case out of 9: every
     # uinput-backed test skipped itself on "/dev/uinput cannot be opened for
     # writing", leaving only the Qt fallback. The module is loadable on hosted
@@ -120,9 +120,9 @@ jobs:
         python3 tests/offscreen-check_retired_models.py
         python3 tests/offscreen-check_whisper_install_pin.py
         python3 tests/offscreen-check_anim_speech_update.py
-        python3 tests/test-parakeet-ultra-setup.py
         python3 tests/test-tray-parakeet-variants.py
-        python3 tests/test-parakeet-ultra-models.py
+        # pytest-style files: plain python3 would only import them
+        python3 -m pytest -q tests/test-parakeet-ultra-setup.py tests/test-parakeet-ultra-models.py
       env:
         QT_QPA_PLATFORM: offscreen
     # The sandboxed evdev loop on fake uinput keyboards: no key may stay
