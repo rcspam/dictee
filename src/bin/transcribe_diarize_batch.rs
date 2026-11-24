@@ -119,11 +119,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let home = env::var("HOME").unwrap_or_else(|_| "/root".to_string());
         let model_dir = model_dir_arg.unwrap_or_else(|| {
-            let user = format!("{}/.local/share/dictee/tdt", home);
+            let subdir = parakeet_rs::parakeet_model_subdir_from_env();
+            let user = format!("{}/.local/share/dictee/{}", home, subdir);
             if std::path::Path::new(&user).join("vocab.txt").exists() {
                 user
             } else {
-                "/usr/share/dictee/tdt".to_string()
+                format!("/usr/share/dictee/{}", subdir)
             }
         });
         let sortformer_dir = sortformer_dir_arg.unwrap_or_else(|| {

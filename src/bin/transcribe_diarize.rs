@@ -82,9 +82,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dbg_print!("audio={}, sensitivity={:.2}", audio_path, sensitivity);
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
         let default_tdt = {
-            let user = format!("{}/.local/share/dictee/tdt", home);
+            let subdir = parakeet_rs::parakeet_model_subdir_from_env();
+            let user = format!("{}/.local/share/dictee/{}", home, subdir);
             if std::path::Path::new(&user).join("vocab.txt").exists() { user }
-            else { "/usr/share/dictee/tdt".to_string() }
+            else { format!("/usr/share/dictee/{}", subdir) }
         };
         let default_sf = {
             let user = format!("{}/.local/share/dictee/sortformer", home);

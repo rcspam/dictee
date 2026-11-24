@@ -47,19 +47,23 @@ def find_parakeet_models():
     """
     models = []
     for base, location in [(SYS_DIR, "system"), (DICTEE_DATA, "user")]:
-        tdt_dir = os.path.join(base, "tdt")
-        # Check for either fp32 or int8 variant (keep in sync with src/model_tdt.rs)
-        has_fp32 = os.path.isfile(os.path.join(tdt_dir, "encoder-model.onnx"))
-        has_int8 = os.path.isfile(os.path.join(tdt_dir, "encoder-model.int8.onnx"))
-        if has_fp32 or has_int8:
-            size = _dir_size_mb(tdt_dir)
-            models.append({
-                "backend": "parakeet",
-                "name": "parakeet-tdt-0.6b-v3",
-                "path": tdt_dir,
-                "location": location,
-                "size_mb": round(size),
-            })
+        # v3 lives in tdt/, Ultra in tdt-ultra/ (see parakeet_model_subdir in
+        # src/model_tdt.rs)
+        for subdir, name in (("tdt", "parakeet-tdt-0.6b-v3"),
+                             ("tdt-ultra", "parakeet-tdt-0.6b-ultra")):
+            tdt_dir = os.path.join(base, subdir)
+            # Check for either fp32 or int8 variant (keep in sync with src/model_tdt.rs)
+            has_fp32 = os.path.isfile(os.path.join(tdt_dir, "encoder-model.onnx"))
+            has_int8 = os.path.isfile(os.path.join(tdt_dir, "encoder-model.int8.onnx"))
+            if has_fp32 or has_int8:
+                size = _dir_size_mb(tdt_dir)
+                models.append({
+                    "backend": "parakeet",
+                    "name": name,
+                    "path": tdt_dir,
+                    "location": location,
+                    "size_mb": round(size),
+                })
     return models
 
 

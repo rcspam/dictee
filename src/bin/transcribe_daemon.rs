@@ -297,7 +297,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .model_dir
         .clone()
         .unwrap_or_else(|| {
-            let subdir = if use_canary { "canary" } else { "tdt" };
+            let subdir = if use_canary { "canary" } else { parakeet_rs::parakeet_model_subdir_from_env() };
             let user_dir = format!(
                 "{}/.local/share/dictee/{}",
                 env::var("HOME").unwrap_or_else(|_| "/root".to_string()),
