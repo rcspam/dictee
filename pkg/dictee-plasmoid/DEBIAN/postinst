@@ -1,6 +1,8 @@
 #!/bin/bash
 if command -v kpackagetool6 >/dev/null 2>&1; then
-    kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+    # `-u` on a first install prints "Error: Plugin … is not installed." on
+    # STDOUT (not stderr) and exits 2 — hence >/dev/null, not just 2>/dev/null.
+    kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid >/dev/null 2>&1 || \
     kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
 fi
 exit 0

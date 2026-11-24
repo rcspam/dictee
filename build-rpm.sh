@@ -473,7 +473,10 @@ for uid in \$(_user_session_uids); do
 
     # Install plasmoid if KDE Plasma 6 is available
     if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
-        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        # \`-u\` on a first install prints "Error: Plugin … is not installed." on
+        # STDOUT (not stderr) and exits 2, so 2>/dev/null alone let a red Error
+        # through on every fresh install, right before the -i below succeeded.
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid >/dev/null 2>&1 || \
         sudo -u "\$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
     fi
 
@@ -830,7 +833,10 @@ for uid in \$(_user_session_uids); do
 
     # Install plasmoid if KDE Plasma 6 is available
     if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
-        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        # \`-u\` on a first install prints "Error: Plugin … is not installed." on
+        # STDOUT (not stderr) and exits 2, so 2>/dev/null alone let a red Error
+        # through on every fresh install, right before the -i below succeeded.
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid >/dev/null 2>&1 || \
         sudo -u "\$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
     fi
 
