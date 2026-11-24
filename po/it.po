@@ -4924,3 +4924,10 @@ msgstr "Altoparlanti: disattivati per impostazione predefinita, perché ciò che
 #: dictee-setup.py
 msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
 msgstr "Cuffie: invariate per impostazione predefinita, nulla raggiunge il microfono. Abbassale per continuare a sentire una chiamata più piano."
+
+msgid "Check for animation-speech updates"
+msgstr "Cerca aggiornamenti di animation-speech"
+
+#, python-brace-format
+msgid "animation-speech {version} is already the latest release."
+msgstr "animation-speech {version} è già l'ultima versione pubblicata."

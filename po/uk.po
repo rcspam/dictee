@@ -4892,3 +4892,10 @@ msgstr "Колонки: за замовчуванням вимкнені, бо �
 #: dictee-setup.py
 msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
 msgstr "Навушники: за замовчуванням без змін, ніщо з них не потрапляє в мікрофон. Знизьте, щоб тихіше чути дзвінок."
+
+msgid "Check for animation-speech updates"
+msgstr "Перевірити оновлення animation-speech"
+
+#, python-brace-format
+msgid "animation-speech {version} is already the latest release."
+msgstr "animation-speech {version} вже є найновішим випуском."

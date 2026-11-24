@@ -4940,3 +4940,10 @@ msgstr "Altavoces: silenciados por defecto, ya que lo que suena llega al micróf
 #: dictee-setup.py
 msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
 msgstr "Auriculares: sin cambios por defecto, nada de lo que suena llega al micrófono. Bájalos para seguir oyendo una llamada más bajo."
+
+msgid "Check for animation-speech updates"
+msgstr "Buscar actualizaciones de animation-speech"
+
+#, python-brace-format
+msgid "animation-speech {version} is already the latest release."
+msgstr "animation-speech {version} ya es la última versión publicada."

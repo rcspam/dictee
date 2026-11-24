@@ -4293,3 +4293,10 @@ msgstr ""
 #: dictee-setup.py
 msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
 msgstr ""
+
+msgid "Check for animation-speech updates"
+msgstr ""
+
+#, python-brace-format
+msgid "animation-speech {version} is already the latest release."
+msgstr ""

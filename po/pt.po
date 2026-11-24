@@ -4900,3 +4900,10 @@ msgstr "Altifalantes: silenciados por predefinição, pois o que reproduzem cheg
 #: dictee-setup.py
 msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
 msgstr "Auscultadores: inalterados por predefinição, nada do que reproduzem chega ao microfone. Baixe-os para continuar a ouvir uma chamada mais baixo."
+
+msgid "Check for animation-speech updates"
+msgstr "Procurar atualizações do animation-speech"
+
+#, python-brace-format
+msgid "animation-speech {version} is already the latest release."
+msgstr "animation-speech {version} já é a versão mais recente publicada."

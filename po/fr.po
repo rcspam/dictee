@@ -4941,3 +4941,10 @@ msgstr "Haut-parleurs : coupés par défaut, puisque ce qu'ils jouent arrive au 
 #: dictee-setup.py
 msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
 msgstr "Casque : inchangé par défaut, rien de ce qu'il joue n'arrive au micro. Baissez-le pour continuer à entendre un appel moins fort pendant la dictée."
+
+msgid "Check for animation-speech updates"
+msgstr "Rechercher une mise à jour d'animation-speech"
+
+#, python-brace-format
+msgid "animation-speech {version} is already the latest release."
+msgstr "animation-speech {version} est déjà la dernière version publiée."

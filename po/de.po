@@ -4944,3 +4944,10 @@ msgstr "Lautsprecher: standardmäßig stumm, da ihr Klang das Mikrofon erreicht 
 #: dictee-setup.py
 msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
 msgstr "Kopfhörer: standardmäßig unverändert, nichts davon erreicht das Mikrofon. Absenken, um einen Anruf leiser weiterzuhören."
+
+msgid "Check for animation-speech updates"
+msgstr "Nach Updates für animation-speech suchen"
+
+#, python-brace-format
+msgid "animation-speech {version} is already the latest release."
+msgstr "animation-speech {version} ist bereits die neueste Version."
