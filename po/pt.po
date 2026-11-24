@@ -5736,3 +5736,15 @@ msgid ""
 msgstr ""
 "Ultra quantizado (~650 MB). Roda sempre na CPU: escolha-o quando não houver "
 "GPU, ou VRAM insuficiente para FP32."
+
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (preciso)"
+
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (rápido)"
+
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (preciso)"
+
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (rápido)"

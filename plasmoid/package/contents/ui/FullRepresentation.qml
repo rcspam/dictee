@@ -578,17 +578,32 @@ RowLayout {
         QQC2.ComboBox {
             id: asrCombo
             Kirigami.Theme.inherit: true
+            // Parakeet has four entries (model Ultra or v3, quantization fp32
+            // or int8). Labels are appended with i18n() so they translate.
             model: ListModel {
                 id: asrModel
-                ListElement { text: "Parakeet"; value: "parakeet" }
-                ListElement { text: "Canary"; value: "canary" }
-                ListElement { text: "Vosk"; value: "vosk" }
-                ListElement { text: "Whisper"; value: "whisper" }
+                Component.onCompleted: {
+                    append({ "text": i18n("Parakeet Ultra (precise)"), "value": "parakeet", "pmodel": "ultra", "quant": "fp32" })
+                    append({ "text": i18n("Parakeet Ultra (fast)"),    "value": "parakeet", "pmodel": "ultra", "quant": "int8" })
+                    append({ "text": i18n("Parakeet v3 (precise)"),    "value": "parakeet", "pmodel": "v3",    "quant": "fp32" })
+                    append({ "text": i18n("Parakeet v3 (fast)"),       "value": "parakeet", "pmodel": "v3",    "quant": "int8" })
+                    append({ "text": "Canary",  "value": "canary",  "pmodel": "", "quant": "" })
+                    append({ "text": "Vosk",    "value": "vosk",    "pmodel": "", "quant": "" })
+                    append({ "text": "Whisper", "value": "whisper", "pmodel": "", "quant": "" })
+                    // The combo's own onCompleted may run before these rows
+                    // exist: sync here too.
+                    asrCombo.syncIndex()
+                }
             }
             textRole: "text"
             function syncIndex() {
+                // Match the backend and, for Parakeet, the model and quantization
                 for (var i = 0; i < asrModel.count; i++) {
-                    if (asrModel.get(i).value === root.currentAsrBackend) {
+                    var item = asrModel.get(i)
+                    if (item.value !== root.currentAsrBackend) continue
+                    if (item.value !== "parakeet"
+                            || (item.pmodel === root.currentParakeetModel
+                                && item.quant === root.currentParakeetQuant)) {
                         currentIndex = i
                         return
                     }
@@ -599,22 +614,45 @@ RowLayout {
             Connections {
                 target: root
                 function onCurrentAsrBackendChanged() { asrCombo.syncIndex() }
+                function onCurrentParakeetQuantChanged() { asrCombo.syncIndex() }
+                function onCurrentParakeetModelChanged() { asrCombo.syncIndex() }
+            }
+            // A Parakeet entry needs its own model (parakeet-v3 / parakeet-ultra)
+            function entryInstalled(value, pmodel) {
+                var key = (value === "parakeet" && pmodel) ? "parakeet-" + pmodel : value
+                return root.installedAsr.indexOf(key) !== -1
             }
             delegate: QQC2.ItemDelegate {
                 width: parent ? parent.width : 0
                 text: model.text
-                enabled: root.installedAsr.indexOf(model.value) !== -1
+                enabled: asrCombo.entryInstalled(model.value, model.pmodel)
                 opacity: enabled ? 1.0 : 0.4
             }
             onActivated: function(index) {
-                var val = asrModel.get(index).value
-                if (root.installedAsr.indexOf(val) !== -1) {
-                    executable.run("dictee-switch-backend asr " + val)
-                } else {
+                var item = asrModel.get(index)
+                if (!entryInstalled(item.value, item.pmodel)) {
                     syncIndex()
+                    return
+                }
+                // `parakeet <model> <quant>` writes both keys with one restart.
+                // DataSource.run() does not go through a shell: `&&` needs
+                // bash -c, so the variant is written before the backend
+                // switch starts the daemon.
+                var needVariant = (item.value === "parakeet"
+                                   && (item.quant !== root.currentParakeetQuant
+                                       || item.pmodel !== root.currentParakeetModel))
+                var pcmd = "dictee-switch-backend parakeet " + item.pmodel + " " + item.quant
+                var needAsr = (item.value !== root.currentAsrBackend)
+                if (needVariant && needAsr) {
+                    executable.run("bash -c '" + pcmd + " && dictee-switch-backend asr " +
+                                   item.value + "'")
+                } else if (needAsr) {
+                    executable.run("dictee-switch-backend asr " + item.value)
+                } else if (needVariant) {
+                    executable.run(pcmd)
                 }
             }
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 10
         }
 
         QQC2.CheckBox {

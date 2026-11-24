@@ -535,3 +535,15 @@ msgstr "Paramètres de la forme d'onde"
 
 #~ msgid "Preview (mic test)"
 #~ msgstr "Aperçu (test micro)"
+
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (précis)"
+
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (rapide)"
+
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (précis)"
+
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (rapide)"

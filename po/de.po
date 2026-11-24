@@ -5781,3 +5781,15 @@ msgid ""
 msgstr ""
 "Quantisiertes Ultra (~650 MB). Läuft immer auf der CPU: wählen, wenn keine "
 "GPU vorhanden ist oder zu wenig VRAM für FP32."
+
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (präzise)"
+
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (schnell)"
+
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (präzise)"
+
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (schnell)"

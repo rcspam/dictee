@@ -4050,3 +4050,15 @@ msgid ""
 "Quantized Ultra (~650 MB). Always runs on the CPU: pick it when there is no "
 "GPU, or too little VRAM for FP32."
 msgstr ""
+
+msgid "Parakeet Ultra (precise)"
+msgstr ""
+
+msgid "Parakeet Ultra (fast)"
+msgstr ""
+
+msgid "Parakeet v3 (precise)"
+msgstr ""
+
+msgid "Parakeet v3 (fast)"
+msgstr ""

@@ -503,3 +503,15 @@ msgstr "Налаштування хвильової форми"
 
 #~ msgid "Preview (mic test)"
 #~ msgstr "Попередній перегляд (тест мікрофона)"
+
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (точний)"
+
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (швидкий)"
+
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (точний)"
+
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (швидкий)"

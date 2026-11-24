@@ -163,6 +163,12 @@ PlasmoidItem {
                 if (parts.length >= 10) {
                     root.llmPostprocessEnabled = (parts[9] === "true")
                 }
+                if (parts.length >= 12) {
+                    root.currentParakeetQuant =
+                        ((parts[10] || "").toLowerCase() === "int8") ? "int8" : "fp32"
+                    root.currentParakeetModel =
+                        ((parts[11] || "").toLowerCase() === "ultra") ? "ultra" : "v3"
+                }
             } else if (source.indexOf("dictee-translate-langs") !== -1) {
                 var langs = stdout.trim()
                 var newList = langs.length > 0 ? langs.split(",") : []
@@ -311,7 +317,7 @@ PlasmoidItem {
     // Current backend state (read from config)
     property string currentAsrBackend: "parakeet"
     property string currentTranslateBackend: "google"
-    property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
+    property var installedAsr: ["parakeet", "parakeet-v3", "parakeet-ultra", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
     property bool sortformerAvailable: false  // updated by checkInstalledCmd
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
@@ -322,7 +328,10 @@ PlasmoidItem {
     property string currentLangTarget: "en"
     property var availableLangTarget: []
     property real backendUserChangeTime: 0  // timestamp of last user-initiated backend change
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT|$DICTEE_PP_SHORT_TEXT|$DICTEE_TRPP_SHORT_TEXT|$DICTEE_LLM_POSTPROCESS\"'"
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT|$DICTEE_PP_SHORT_TEXT|$DICTEE_TRPP_SHORT_TEXT|$DICTEE_LLM_POSTPROCESS|$DICTEE_PARAKEET_QUANT|$DICTEE_PARAKEET_MODEL\"'"
+    // Parakeet variant from dictee.conf; absent keys = v3 / fp32 (the daemon's defaults)
+    property string currentParakeetQuant: "fp32"
+    property string currentParakeetModel: "v3"
     property string translateLangsCmd: "dictee-translate-langs"
     property bool audioContextEnabled: false
     property bool shortTextEnabled: true
@@ -332,7 +341,11 @@ PlasmoidItem {
     property string listAudioSourcesCmd: "dictee-audio-sources"
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
+        // Parakeet: "parakeet" when any model is there, plus one line per
+        // model (v3 in tdt, Ultra in tdt-ultra) to grey out the other entries.
         "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ] || [ -d /usr/share/dictee/tdt-ultra ] || [ -d \"$dd/tdt-ultra\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
+        "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && echo parakeet-v3; " +
+        "{ [ -d /usr/share/dictee/tdt-ultra ] || [ -d \"$dd/tdt-ultra\" ]; } && echo parakeet-ultra; " +
         // Canary: Rust native (transcribe-daemon --canary), needs CUDA libs bundled
         // (CPU-only install is too slow in practice → hide Canary from the UI)
         "{ [ -d /usr/share/dictee/canary ] || [ -f \"$dd/canary/encoder-model.onnx\" ]; } " +

@@ -5725,3 +5725,15 @@ msgid ""
 msgstr ""
 "Квантований Ultra (~650 МБ). Завжди працює на CPU: обирайте його, якщо немає"
 " GPU або замало VRAM для FP32."
+
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (точний)"
+
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (швидкий)"
+
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (точний)"
+
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (швидкий)"

@@ -168,11 +168,19 @@ def read_conf_value(key, default=""):
     return default
 
 
+# ASR backends shown in the tray menu: (menu_id, label_msgid, backend, variant).
+# Parakeet appears four times, one entry per model and quantization; variant
+# is "<model>:<quant>" for those ("ultra:int8", "v3:fp32"), None otherwise.
+# label_msgid goes through _() when the menu is built (gettext may not be
+# initialised at module load).
 ASR_BACKENDS = [
-    ("parakeet", "Parakeet"),
-    ("canary", "Canary"),
-    ("vosk", "Vosk"),
-    ("whisper", "Whisper"),
+    ("parakeet-ultra-fp32", "Parakeet Ultra (precise)", "parakeet", "ultra:fp32"),
+    ("parakeet-ultra-int8", "Parakeet Ultra (fast)",    "parakeet", "ultra:int8"),
+    ("parakeet-fp32",       "Parakeet v3 (precise)",    "parakeet", "v3:fp32"),
+    ("parakeet-int8",       "Parakeet v3 (fast)",       "parakeet", "v3:int8"),
+    ("canary",  "Canary",  "canary",  None),
+    ("vosk",    "Vosk",    "vosk",    None),
+    ("whisper", "Whisper", "whisper", None),
 ]
 
 TRANSLATE_BACKENDS = [
@@ -228,6 +236,59 @@ def _current_translate_backend():
 
 def _is_translate_enabled():
     return read_conf_value("DICTEE_TRANSLATE", "false").lower() == "true"
+
+
+def _asr_switch_command(backend, variant, current_backend, current_model, current_quant):
+    """Command that selects the menu entry (backend, variant), or None when it
+    is already the active one. A Parakeet variant goes through
+    `dictee-switch-backend parakeet <model> <quant>` (model and quant written
+    together, one daemon restart), chained before `asr` when the backend
+    changes too, so the daemon starts once with the right files."""
+    need_asr = current_backend != backend
+    need_variant = False
+    if variant:
+        model, _sep, quant = variant.partition(":")
+        need_variant = (model, quant) != (current_model, current_quant)
+    if need_variant and need_asr:
+        return ["bash", "-c",
+                f"dictee-switch-backend parakeet {model} {quant} && "
+                f"dictee-switch-backend asr {backend}"]
+    if need_variant:
+        return ["dictee-switch-backend", "parakeet", model, quant]
+    if need_asr:
+        return ["dictee-switch-backend", "asr", backend]
+    return None
+
+
+def _asr_entry_checked(backend, variant, current_backend, current_model, current_quant):
+    """Whether the menu entry (backend, variant) is the active one."""
+    if backend != current_backend:
+        return False
+    if variant:
+        return variant == f"{current_model}:{current_quant}"
+    return True
+
+
+def _current_parakeet_variant():
+    """(model, quant) of the Parakeet variant in dictee.conf, v3 / fp32
+    when absent (the daemon's defaults)."""
+    model = read_conf_value("DICTEE_PARAKEET_MODEL", "v3").lower()
+    quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+    return ("ultra" if model == "ultra" else "v3",
+            "int8" if quant == "int8" else "fp32")
+
+
+def _asr_entry_available(backend, variant):
+    """_asr_service_exists, narrowed to the entry's Parakeet model."""
+    if not _asr_service_exists(backend):
+        return False
+    if not variant:
+        return True
+    sub = "tdt-ultra" if variant.startswith("ultra:") else "tdt"
+    data_dir = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "dictee")
+    return any(os.path.isdir(os.path.join(base, sub))
+               for base in ("/usr/share/dictee", data_dir))
 
 
 def _asr_service_exists(key):
@@ -541,13 +602,13 @@ class DicteeTrayAppIndicator:
 
         self._asr_radios = []
         group = None
-        for key, label in ASR_BACKENDS:
-            item = Gtk.RadioMenuItem(label=label, group=group)
+        for menu_id, label, backend, variant in ASR_BACKENDS:
+            item = Gtk.RadioMenuItem(label=_(label), group=group)
             if group is None:
                 group = item
-            item.connect("toggled", self._on_asr_toggled, key)
+            item.connect("toggled", self._on_asr_toggled, backend, variant)
             self.submenu_asr.append(item)
-            self._asr_radios.append((key, item))
+            self._asr_radios.append((backend, variant, item))
 
         # Translate backend submenu
         self.submenu_trans = Gtk.Menu()
@@ -819,9 +880,13 @@ class DicteeTrayAppIndicator:
         self._setup_file_watch()
         return True  # GLib.SOURCE_CONTINUE
 
-    def _on_asr_toggled(self, item, key):
+    def _on_asr_toggled(self, item, backend, variant):
         if item.get_active():
-            subprocess.Popen(["dictee-switch-backend", "asr", key])
+            current_b = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
+            cmd = _asr_switch_command(backend, variant, current_b,
+                                      *_current_parakeet_variant())
+            if cmd:
+                subprocess.Popen(cmd)
             from gi.repository import GLib
             GLib.timeout_add(2000, self._delayed_daemon_refresh)
 
@@ -861,10 +926,12 @@ class DicteeTrayAppIndicator:
 
     def _refresh_backend_radios(self):
         current_asr = _current_asr_backend()
-        for key, item in self._asr_radios:
+        current_variant = _current_parakeet_variant()
+        for backend, variant, item in self._asr_radios:
             item.handler_block_by_func(self._on_asr_toggled)
-            item.set_active(key == current_asr)
-            item.set_sensitive(_asr_service_exists(key))
+            # Parakeet entries also match on model and quant
+            item.set_active(_asr_entry_checked(backend, variant, current_asr, *current_variant))
+            item.set_sensitive(_asr_entry_available(backend, variant))
             item.handler_unblock_by_func(self._on_asr_toggled)
 
         # Disable translation submenu when using canary (built-in translation)
@@ -965,12 +1032,12 @@ class DicteeTrayQt:
         self._asr_group = QActionGroup(self.menu_asr)
         self._asr_group.setExclusive(True)
         self._asr_actions = {}
-        for key, label in ASR_BACKENDS:
-            action = self.menu_asr.addAction(label)
+        for menu_id, label, backend, variant in ASR_BACKENDS:
+            action = self.menu_asr.addAction(_(label))
             action.setCheckable(True)
-            action.setData(key)
+            action.setData({"backend": backend, "variant": variant})
             self._asr_group.addAction(action)
-            self._asr_actions[key] = action
+            self._asr_actions[menu_id] = action
         self._asr_group.triggered.connect(self._on_asr_selected)
 
         # Translate backend submenu
@@ -1106,8 +1173,12 @@ class DicteeTrayQt:
                 self._cancel()
 
     def _on_asr_selected(self, action):
-        key = action.data()
-        subprocess.Popen(["dictee-switch-backend", "asr", key])
+        data = action.data() or {}
+        current_b = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
+        cmd = _asr_switch_command(data.get("backend"), data.get("variant"),
+                                  current_b, *_current_parakeet_variant())
+        if cmd:
+            subprocess.Popen(cmd)
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(2000, self._delayed_daemon_refresh)
 
@@ -1169,9 +1240,12 @@ class DicteeTrayQt:
 
     def _refresh_asr_menu(self):
         current = _current_asr_backend()
-        for key, action in self._asr_actions.items():
-            action.setChecked(key == current)
-            action.setEnabled(_asr_service_exists(key))
+        current_variant = _current_parakeet_variant()
+        for action in self._asr_actions.values():
+            data = action.data() or {}
+            backend, variant = data.get("backend"), data.get("variant")
+            action.setChecked(_asr_entry_checked(backend, variant, current, *current_variant))
+            action.setEnabled(_asr_entry_available(backend, variant))
 
     def _refresh_trans_menu(self):
         # Disable when using canary (built-in translation)

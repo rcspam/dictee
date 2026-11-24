@@ -5835,3 +5835,15 @@ msgid ""
 msgstr ""
 "Ultra quantifié (~650 Mo). Tourne toujours sur le CPU : à choisir sans GPU, "
 "ou avec trop peu de VRAM pour le FP32."
+
+msgid "Parakeet Ultra (precise)"
+msgstr "Parakeet Ultra (précis)"
+
+msgid "Parakeet Ultra (fast)"
+msgstr "Parakeet Ultra (rapide)"
+
+msgid "Parakeet v3 (precise)"
+msgstr "Parakeet v3 (précis)"
+
+msgid "Parakeet v3 (fast)"
+msgstr "Parakeet v3 (rapide)"

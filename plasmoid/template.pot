@@ -423,3 +423,15 @@ msgstr ""
 
 msgid "Waveform settings"
 msgstr ""
+
+msgid "Parakeet Ultra (precise)"
+msgstr ""
+
+msgid "Parakeet Ultra (fast)"
+msgstr ""
+
+msgid "Parakeet v3 (precise)"
+msgstr ""
+
+msgid "Parakeet v3 (fast)"
+msgstr ""
