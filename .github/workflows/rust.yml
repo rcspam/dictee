@@ -35,6 +35,10 @@ jobs:
           echo "Checking $f..."
           msgfmt --check --output=/dev/null "$f"
         done
+    - name: Gettext catalog follows the code
+      # po/dictee.pot matches the _() strings of the Python UIs and every
+      # language is complete; regenerate with po/update-catalog.py.
+      run: python3 tests/test-i18n-catalog.py
 
   test-postprocess:
     runs-on: ubuntu-latest
