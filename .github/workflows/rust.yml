@@ -30,7 +30,7 @@ jobs:
         done
     - name: Gettext locale check
       run: |
-        sudo apt-get install -y gettext > /dev/null
+        sudo apt-get update > /dev/null && sudo apt-get install -y gettext > /dev/null
         for f in po/*.po; do
           echo "Checking $f..."
           msgfmt --check --output=/dev/null "$f"
@@ -248,7 +248,7 @@ jobs:
       # dictee-app-capture links libpipewire-0.3: libspa-sys' build.rs needs
       # the .pc file and bindgen needs libclang — any workspace build fails
       # without them.
-      run: sudo apt-get install -y libpipewire-0.3-dev libclang-dev
+      run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libclang-dev
     - name: Build
       # The default features are the shipped CPU package's feature set: the
       # diarization (Nemotron 3) needs no feature since 1.4.
@@ -264,7 +264,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
     - name: Install build deps
       # Same as test-x86: libpipewire dev headers for dictee-app-capture.
-      run: sudo apt-get install -y libpipewire-0.3-dev libclang-dev
+      run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libclang-dev
     - name: Build
       # Same feature set as test-x86 (see comment there).
       run: cargo build --verbose
