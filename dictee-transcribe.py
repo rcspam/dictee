@@ -1355,8 +1355,10 @@ class _DiarizeTranscribeWorker(QThread):
 
         results = []
         for turn in turns:
-            speaker = (f"{_('Speaker')} {turn['speaker']}"
-                       if turn["speaker"] >= 0 else _("UNKNOWN"))
+            # Format tokens read back by DIARIZE_RE, never translated: the
+            # displayed names go through the speaker rename instead.
+            speaker = (f"Speaker {turn['speaker']}"
+                       if turn["speaker"] >= 0 else "UNKNOWN")
             results.append(
                 f"[{turn['start']:.2f}s - {turn['end']:.2f}s] "
                 f"{speaker}: {' '.join(turn['parts'])}")
@@ -1425,7 +1427,7 @@ class _DiarizeTranscribeWorker(QThread):
                         continue
                     results.append(
                         f"[{start:.2f}s - {end:.2f}s]"
-                        f" {_('Speaker')} {seg['speaker']}: {text}")
+                        f" Speaker {seg['speaker']}: {text}")  # DIARIZE_RE token
         except Exception as e:
             if self._cancelled:
                 return
@@ -6507,7 +6509,7 @@ class TranscribeWindow(QDialog):
             row.addWidget(lbl)
 
             le = QLineEdit()
-            le.setPlaceholderText(_("Nom (ex. Alice)"))
+            le.setPlaceholderText(_("Name (e.g. Alice)"))
             le.setText(self._speaker_name_map.get(spk, ""))
             le.returnPressed.connect(self._apply_speaker_rename)
             row.addWidget(le, 1)

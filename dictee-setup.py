@@ -13616,7 +13616,7 @@ class DicteeSetupDialog(QDialog):
             _("German contractions and typography.\n"
               "Contractions: \"an dem\" → \"am\", \"in dem\" → \"im\",\n"
               "\"zu dem\" → \"zum\", \"zu der\" → \"zur\"\n"
-              "Typography: \"text\" → \u201etext\u201c (German quotes)")))
+              "Typography: \"text\" → „text“ (German quotes)")))
 
         content_lay.addWidget(grp_de)
 
@@ -13644,7 +13644,7 @@ class DicteeSetupDialog(QDialog):
         grp_ro_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_romanian,
             _("Romanian contractions and typography.\n"
               "\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
-              "Typography: \"text\" → \u201etext\u201c (Romanian quotes)")))
+              "Typography: \"text\" → „text“ (Romanian quotes)")))
 
         content_lay.addWidget(grp_ro)
 
@@ -20136,8 +20136,8 @@ class DicteeSetupDialog(QDialog):
             if needs_trpp and translated_from:
                 _pre_trpp = translated_from  # text before TRPP
             html_lines.append(_line(
-                _("\U0001f310 Translate: \u201c{src}\u201d \u2192 "
-                  "\u201c{tgt}\u201d").format(src=src_short, tgt=tgt_short)))
+                _("🌐 Translate: “{src}” → "
+                  "“{tgt}”").format(src=src_short, tgt=tgt_short)))
         if translate_error:
             html_lines.append(_line(
                 _("⚠ Translation failed: {err}").format(err=translate_error),
